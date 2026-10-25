@@ -1,101 +1,322 @@
-# LizzieYzy - 围棋引擎界面(中文,[English](#en),[日本語](https://github-com.translate.goog/yzyray/lizzieyzy/blob/main/README_EN.md?_x_tr_sl=en&_x_tr_tl=ja&_x_tr_pto=wapp),[한국어](#ko))
-![screenshot](/screenshot.png?raw=true)
+# LizzieYzy-SakuraGo
 
-LizzieYzy 是一个引擎界面,修改自[Lizzie](https://github.com/featurecat/lizzie),可加载围棋引擎:[Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi)以及其他标准GTP引擎。
+A fork of [LizzieYzy](https://github.com/yzyray/lizzieyzy) that adds a **direct Fox Weiqi (野狐围棋) client bridge**, allowing a KataGo-based analysis engine to play live games on the Fox Weiqi platform without any external relay tool.
 
-在Lizzie的基础上增加了一些新功能:**鹰眼分析,闪电分析,批量分析,形势判断,棋盘同步,引擎对局,死活题分析,双引擎模式,可视化KataGo分布式训练**,以及一些细节修改,可完美支持高分辨率,不会因为系统缩放而显示模糊
-#
-* 新功能
+---
 
-  * **鹰眼分析**: 根据AI的选点胜率、计算量、目差,与棋谱中实际落子做比较,得出吻合度,胜率波动,目差波动,失误手等信息并以图表化的形式展示
+## Table of Contents
 
-  * **闪电分析**: 使用Katago的analysis模式,并行分析整个棋谱,快速得出胜率图,选点等信息,支持批量分析
+- [Overview](#overview)
+- [Features](#features)
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Building from Source](#building-from-source)
+- [How It Works](#how-it-works)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [Safety Notes](#safety-notes)
+- [Known Limitations](#known-limitations)
+- [Credits & Upstream Projects](#credits--upstream-projects)
+- [License](#license)
 
-  * **批量分析**: 支持打包棋谱按顺序使用GTP引擎分析,或使用Katago的analysis模式分析
+---
 
-  * **形式判断**: 使用Katago(默认)的`kata-raw-nn`命令或ZenGTP的`territory`命令获取粗略的领地判断,支持每一步自动形势判断
+## Overview
 
-  * **棋盘同步(C#)**: [相关仓库](https://github.com/yzyray/readboard)前台(不可移动,遮挡)/后台(不占用鼠标,可遮挡)两种模式,特别优化了野狐、弈城、新浪平台可一键同步,其他平台或图片动画等需框选棋盘(将棋盘选在内即可,比棋盘大很多也没关系),支持双向同步、自动落子(溜狗),采用C#语言,因此只支持Windows
+LizzieYzy is a popular Go analysis GUI for Leela Zero and KataGo. It is excellent for reviewing games and analyzing positions, but it does not natively support playing live games on the Fox Weiqi server.
 
-  * **棋盘同步(Java)**: [相关仓库](https://github.com/yzyray/readboard_Boofcv)仅前台,需框选棋盘(选择比棋盘大一些的区域),支持双向同步、自动落子(溜狗)
+This fork adds a lightweight bridge that:
 
-  * **引擎对局**: 两个引擎之间的单盘/多盘对局,可加载多个SGF作为开局,支持使用不同命令获取引擎选点:`lz-analyze`、`kata-analyze`、`genmove`,多盘对局将会自动计算elo、标准差区间等信息
+1. Listens on a local TCP port for the Fox Weiqi client (the same way the original Python SakuraGTP does).
+2. Parses the Fox private protocol (`$FARULE`, `$FAMOVE`, `$FASTATUS`, `$FARESULT`, ...).
+3. Keeps the local LizzieYzy board in sync with the Fox game.
+4. Drives KataGo through standard GTP (`kata-genmove_analyze`, `play`, `kata-set-rules`, ...).
+5. Sends the engine's move back to the Fox client as `$AFPLAY` / `$AFSKIP` / `$AFGIVEUP` / `$AFSCORE`.
 
-  * **死活题分析**: 支持抓取局部棋盘上的死活题,并自动生成死活题框架以便AI在正确的范围内思考,详见[菜单]-[分析]-[死活题]以及[抓取死活题],或工具栏的最右侧[死活]按钮
+The whole bridge lives under `src/main/java/featurecat/lizzie/analysis/fox/` and is wired into the main window via **Sync → Fox Direct (协议直连)** in the menu bar.
 
-  * **双引擎模式**: 支持同时加载两个引擎并同步分析对比
+---
 
-  * **可视化KataGo分布式训练**: 将KataGo官方的分布式训练可视化,可以看到每一局正在进行和已经训练完成的对局
-#
- * [使用简介](https://github.com/yzyray/lizzieyzy/blob/main/readme_cn.pdf)
- * 其他用到的jar代码链接: [foxRequestQ.jar](https://github.com/yzyray/FoxRequest) [InVisibleFrame.jar](https://github.com/yzyray/testbuffer) [CaptureTsumeGo.jar](https://github.com/yzyray/captureTsumeGo/blob/main/README.md)
+## Features
 
-#
-<span id="en"></span>
-# LizzieYzy - GUI for Game of Go
-![screenshot_en](/screenshot_en.png?raw=true)
+- **Direct Fox client connection** — no intermediate relay, no external Python process.
+- **GTP-based engine control** — works with any GTP-speaking engine, optimized for KataGo.
+- **Automatic board synchronization** — every `FAMOVE` and `FASTATUS` is mirrored to the LizzieYzy board and to the engine.
+- **Automatic genmove response** — the engine's `play <vertex>` output is captured and forwarded to Fox as `AFPLAY`.
+- **Reconnect handling** — `FASTATUS` replays the full move history when the Fox client reconnects; duplicate `FAMOVE` messages are de-duplicated.
+- **Manual placement lock** — during a Fox game, clicking on the board is disabled to prevent accidental moves. Analysis, winrate graph, and variation tree remain fully interactive.
+- **Pass and resign support** — engine `pass` → `AFSKIP`, engine `resign` → `AFGIVEUP`.
+- **Final score reporting** — `FASCORE` is answered with the engine's `final_score`.
+- **Live winrate mode (optional)** — instead of a single `genmove`, the bridge can run `kata-analyze` continuously and commit the best move after a configurable time/visits budget.
+- **Rule switching** — China, Japan, Korea, AGA, New Zealand, etc., via `kata-set-rules`.
 
-LizzieYzy is a graphical interface modified from [Lizzie](https://github.com/featurecat/lizzie), allows loading various engines like: [Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi) or other GTP engines.
+---
 
-We have added some new features on Lizzie's basis: **Hawk Eye, Flash Analyze, Batch Analyze, Estimate, Board Synchronization(only windows), Engine Game, Tsumego Frame, Double Engine Mode, Visualized KataGo Distributed Training** and adjusted some details, supported retina monitor, avoided getting fuzzy by scaled.
-#
-* New features
+## Requirements
 
-  * **Hawk Eye**: Get accuracy, winrate difference, score difference and blunder moves based on the differences between engine candidates and actual moves and display in chart.
+| Component | Version |
+|-----------|---------|
+| Java | 8 or newer (11+ recommended) |
+| Maven | 3.6+ (for building) |
+| KataGo | 1.10+ recommended, with a working GPU backend |
+| Fox Weiqi client | Windows desktop client with AI permission |
+| OS | Windows 10 / 11 (Linux and macOS should work but are untested) |
 
-  * **Flash Analyze**: Depend on Katago's analysis mode, analyze all kifus in parallel and get winrate graph candidates rapidly, support batch analyze.
+For KataGo installation and model downloads, see the official KataGo project:
 
-  * **Batch Analyze**: Support batch analyze kifus by GTP engine or Katago's analysis mode.
+- **KataGo**: <https://github.com/lightvector/KataGo>
+- **KataGo releases**: <https://github.com/lightvector/KataGo/releases>
 
-  * **Estimate**: Use Katago(default)'s command:`kata-raw-nn` or ZenGTP's command `territory` to get raw territory, support automatically estimate after each move.
+For the upstream LizzieYzy project:
 
-  * **Board Synchronization(C#)**: [Repository](https://github.com/yzyray/readboard) Two mode: foreground(board can't be moved or covered)/backgorund. Special optimizations have been made for FoxWQ、TYGEM、SINA platforms, allowing one-click synchronization, while synchronizing from other platforms or from a picture or gif you need to select the region of the board. Support automatically carrying moves for both sides(developed by C#, only support Windows).
+- **LizzieYzy**: <https://github.com/yzyray/lizzieyzy>
+- **LizzieYzy releases**: <https://github.com/yzyray/lizzieyzy/releases>
 
-  * **Board Synchronization(Java)**: [Repository](https://github.com/yzyray/readboard_Boofcv) Foreground only, need to select the region contains the board. Support automatically carrying moves for both sides.
+---
 
-  * **Engine Game**: Allow a game or multiple games bettween two engines. Support loading some SGF files as opening books. Support various commands:`lz-analyze`, `kata-analyze`, `genmove` to get moves. For multiple games it will automatically calculate some statistics: elo, stdev interval and etc.
+## Quick Start
 
-  * **Tsumego Analysis**: Support capture tsumego in part of goban, and automatically generate other part of stones help engine analyze in right area, refer to [Analyze]-[Tsumego frame] or [Capture tsumego] or [Tsumego] button in toolbar.
+1. Download the latest `lizzie-yzy2.5.3-shaded.jar` from this repository's **Releases** page (or build it yourself, see below).
+2. Place it next to the usual LizzieYzy launcher / `readboard.exe` / `java` runtime.
+3. Start the Fox Weiqi client and log in with an AI-permitted account.
+4. Launch LizzieYzy.
+5. Configure KataGo (engine path, model, config) as usual via **Settings → Engine**.
+6. In the menu bar, choose **Sync → Fox Direct (协议直连)**.
+7. In the Fox Weiqi client, set the AI address to `127.0.0.1:6000`.
+8. Start a game on Fox. LizzieYzy will keep the board in sync and play for you.
 
-  * **Double Engine Mode**: Support loading two engines and analyze synchronously, which is convenient for comparison.
+The GTP console (`E` key) will show bridge messages prefixed with `[Fox]`, for example:
 
-  * **Visualized KataGo Distributed Training**: Visualized official KataGo training, all games(playing or completed) can be watched.
+```
+[Fox] 开始监听野狐客户端端口 6000
+[Fox] 野狐客户端已连接: /127.0.0.1:4752
+[Fox] 规则: 棋盘19, 贴目6.5, 让子[]
+[Fox] 野狐确认落子: B Q16（第 1 手） isAiTurn=false
+[Fox] 请求 genmove W
+[Fox] 发送落子: D4 -> AFPLAY W,2^3^15^W
+```
 
-#
- * Instruction for use: https://github.com/yzyray/lizzieyzy/blob/main/readme_en.pdf (If you are reading under translate to Japanese or Korean, please go to original link, translated link will not work)
- * Other jar source code links: [foxRequestQ.jar](https://github.com/yzyray/FoxRequest) [InVisibleFrame.jar](https://github.com/yzyray/testbuffer) [CaptureTsumeGo.jar](https://github.com/yzyray/captureTsumeGo/blob/main/README.md)
+---
 
-#
-<span id="ko"></span>
-# LizzieYzy - 바둑 엔진용 GUI
-![screenshot_ko](/screenshot_ko.png?raw=true)
+## Building from Source
 
-LizzieYzy는 [Lizzie](https://github.com/featurecat/lizzie)를 기반으로 [Katago](https://github.com/lightvector/KataGo)、[LeelaZero](https://github.com/leela-zero/leela-zero)、[Leela](https://github.com/gcp/Leela)、[ZenGTP](https://github.com/yzyray/ZenGTP)、[SAI](http://sai.unich.it)、[Pachi](https://github.com/pasky/pachi) 등의 다른 GTP engine들을 로드할 수 있도록 수정된 그래픽 인터페이스입니다.
+```bash
+git clone <this-repo-url>
+cd <this-repo-dir>
+mvn clean package -DskipTests
+```
 
-Lizzie 기반에 몇 가지 새로운 기능 추가: **Hawk Eye, Flash Analyze, Batch Analyze, Estimate, Board Synchronization(only windows), Engine Game, Tsumego Analysis, Double Engine Mode, Visualized KataGo Distributed Training** 및 몇몇 세부 사항 조정, 고해상도를 완벽하게 지원하여 시스템 스케일링으로 인해 흐릿하게 표시되지 않습니다.
-#
-* 새로운 기능
+The build produces:
 
-  * **Hawk Eye**: 정확도, 승률 차이, 점수 차이, 엔진 후보 수와 실제 착수의 차이를 기반으로 한 실착수를 찾아서 차트에 표시.
+```
+target/lizzie-yzy2.5.3-shaded.jar
+```
 
-  * **Flash Analyze**: Katago의 분석 모드를 사용함. 모든 기보를 병렬로 분석. 승률 그래프 후보를 빠르게 획득. 일괄 분석 지원.
+Copy it into your LizzieYzy distribution folder (replacing the old jar) and launch as usual.
 
-  * **Batch Analyze**: GTP engine 또는 Katago의 분석 모드를 사용한 다수 기보 일괄 분석 지원.
+### Building on Windows with PowerShell
 
-  * **Estimate**: Katago(기본값)의 `kata-raw-nn` 명령 또는 ZenGTP의 `territory` 명령을 사용하여 현재 집 수 계산. 각 착수 후의 집 수 자동 예측을 지원.
+A helper script is included:
 
-  * **Board Synchronization(C#)**: [Repository](https://github.com/yzyray/readboard) 두 가지 모드: 전경(바둑판을 이동하거나 덮을 수 없음)/배경. FoxWQ, TYGEM, SINA 플랫폼에 최적화. 버튼을 클릭하여 동기화를 허용. 다른 플랫폼이나 사진 또는 착수를 통한 동기화 시 바둑판이 포함된 영역을 선택해야 함. 양방향 자동 착수 전달 지원. C#으로 개발되어서 Windows만 지원.
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build-fox.ps1
+```
 
-  * **Board Synchronization(Java)**: [Repository](https://github.com/yzyray/readboard_Boofcv) 전경 전용. 바둑판이 포함된 영역을 선택해야 함. 양방향 자동 착수 전달 지원.
+It runs `mvn clean package`, copies the jar to the configured distribution folder, and verifies the SHA-256 of the copy.
 
-  * **Engine Game**: 두 엔진 간의 1회(또는 다회) 대국을 수행. 대국 시작점으로 일부 sgf를 사용할 수 있습니다. 착수를 위한 다양한 명령 지원: `lz-analyze`, `kata-analyze`, `genmove`. 다회 대국시에 몇 가지 통계를 수집합니다: elo, stdev 간격 등.
+---
 
-  * **Tsumego Analysis**: Support capture tsumego in part of goban, and automatically generate other part of stones help engine analyze in right area, refer to [Analyze]-[Tsumego frame] or [Capture tsumego] or [Tsumego] button in toolbar.
+## How It Works
 
-  * **Double Engine Mode**: 2개 엔진을 로드하여 동시 분석을 지원. 비교에 편리합니다.
+```
+┌──────────────┐   Fox protocol (TCP)   ┌──────────────────────────┐
+│ Fox client   │◄──────────────────────►│ FoxClientServer          │
+└──────────────┘                        │  ↓ parses $FARULE/…      │
+                                        │ FoxBridge                │
+                                        │  ↓ GTP                   │
+                                        │ Leelaz                   │
+                                        │  ↓ subprocess            │
+                                        │ KataGo                   │
+                                        └──────────────────────────┘
+```
 
-  * **Visualized KataGo Distributed Training**: 시각화된 공식 KataGo 훈련. 모든 대국(진행중이거나 완료된)을 시청할 수 있습니다.
+### Move flow (opponent's move)
 
-#
- * [사용 지침(영문)](https://github.com/yzyray/lizzieyzy/blob/main/readme_en.pdf)
- * 기타 jar 소스 코드 링크: [foxRequestQ.jar](https://github.com/yzyray/FoxRequest) [InVisibleFrame.jar](https://github.com/yzyray/testbuffer) [CaptureTsumeGo.jar](https://github.com/yzyray/captureTsumeGo/blob/main/README.md)
+1. Fox sends `$FAMOVE,0,W,<n>^x^y^B*XX` (opponent just played B at `(x, y)`).
+2. `FoxBridge.handleFamove` calls `LizzieFoxHost.onFoxMove`.
+3. `LizzieFoxHost` places the stone on the LizzieYzy board with `suppressPonderOnPlay = true`, which sends `play B <vertex>` to KataGo via `Leelaz.playMove`.
+4. `FoxBridge.startThinking` sets `waitingGenmoveResult = true` and asks `LizzieFoxHost.onAiTurn` to call `Leelaz.genmove("W")`.
+
+### Move flow (AI's move)
+
+1. `Leelaz.genmove` sets `isThinking = true` and `waitingGenmoveResponse = true`, then sends `kata-genmove_analyze W 10`.
+2. KataGo outputs:
+   ```
+   =
+   play D4
+   MALKOVICH:Visits ...
+   ```
+3. `Leelaz.read` first calls `FoxBridge.onEngineOutput("play D4")`. `waitingGenmoveResult` matches, so `sendMoveToFox("D4")` emits `$AFPLAY,W,<n>^3^15^W*XX` to Fox.
+4. `Leelaz.parseLine("play D4")` then sees `waitingGenmoveResponse`, calls `handleGenmoveResult("D4")`, which places D4 on the local board with `suppressPlayCommandOnGenmove = true` to avoid sending a redundant `play` back to KataGo.
+
+### Safety guards
+
+- `Leelaz.suppressPonderOnPlay` — prevents a `kata-analyze` from being issued immediately after a place (would fight with a pending `genmove`).
+- `Leelaz.suppressPlayCommandOnGenmove` — prevents the genmove result from being echoed back to KataGo as a `play` command.
+- `LizzieFrame.foxGameInputLocked` — disables left-click, right-click, and manual placement on the board while a Fox game is in progress. Set by `FARULE`/`FAMOVE`, cleared by `FARESULT` or by stopping the bridge.
+
+---
+
+## Configuration
+
+The Fox bridge currently exposes only two settings, both controlled from the GTP console or by editing the code:
+
+| Setting | Default | How to change |
+|---------|---------|---------------|
+| Listen port | `6000` | Edit `LizzieFrame.toggleFoxDirect` (search for `final int port`). |
+| Live winrate | disabled | Call `FoxBridge.setLiveWinrate(true)` before starting a game; not yet exposed in the GUI. |
+
+A proper settings dialog is on the roadmap. For now, if you need a different port, edit the hardcoded `6000` and rebuild.
+
+---
+
+## Usage
+
+### Analysis only (no Fox)
+
+Launch LizzieYzy normally. The Fox bridge is inactive until you explicitly start it.
+
+### Fox game
+
+1. **Settings → Engine** — configure KataGo:
+   - Engine path: `C:\path\to\katago.exe`
+   - Weight: `C:\path\to\model.bin.gz`
+   - Config: `C:\path\to\gtp.cfg`
+2. **Sync → Fox Direct** — start the TCP listener on port 6000.
+3. In Fox, set the AI address to `127.0.0.1:6000`.
+4. Start a game. The board auto-syncs and the engine plays.
+5. When the game ends, `FARESULT` clears the board and unlocks manual placement.
+
+### Stopping the bridge
+
+Either:
+
+- **Sync → Fox Direct** again (toggles off), or
+- Close LizzieYzy. The TCP port is released on exit.
+
+If the Fox client disconnects unexpectedly, the bridge automatically waits for reconnection (5-second interval by default, see `FoxClientServer.setAutoReconnect`).
+
+### Common GTP console messages
+
+| Message | Meaning |
+|---------|---------|
+| `[Fox] 开始监听野狐客户端端口 6000` | Listener started |
+| `[Fox] 野狐客户端已连接` | Fox client connected |
+| `[Fox] 规则: 棋盘19, 贴目6.5, 让子[]` | Game rules received |
+| `[Fox] 重连重放完成，已同步到第 N 手` | Replay after reconnect |
+| `[Fox] 请求 genmove W` | AI's turn, engine is thinking |
+| `[Fox] 发送落子: D4 -> AFPLAY W,...` | Move sent to Fox |
+| `[Fox] 发送停一手: AFSKIP W` | AI passed |
+| `[Fox] 发送认输: AFGIVEUP W` | AI resigned |
+| `[Fox] 棋盘手动落子 已锁定` | Manual placement disabled |
+| `[Fox] 野狐重复落子已跳过` | Duplicate `FAMOVE` ignored |
+
+---
+
+## Safety Notes
+
+- **The manual placement lock is intentional.** In a live Fox game, an accidental click on the board would desync the local board from the Fox server and could cause the engine to play an illegal move. The lock protects against this. Analysis, variation tree, and winrate graph remain interactive.
+- **Use a dedicated Fox account.** The AI account must have permission to play rated games. Do not use your personal account.
+- **The bridge does not cheat.** It only parses messages the Fox client itself sends to a local port. No memory reading, no packet injection outside the standard Fox AI protocol.
+- **No credentials are stored.** The bridge never sees your Fox username or password; the client handles authentication separately.
+- **The bridge does not report scores automatically.** `FASCORE` responses come from KataGo's `final_score`; if KataGo and Fox disagree on the rules, the score may differ.
+
+---
+
+## Known Limitations
+
+- **Live winrate mode is not exposed in the GUI.** `setLiveWinrate` must be called programmatically.
+- **The listen port is hardcoded** to `6000`. A settings dialog is planned.
+- **Fox protocol variants are not exhaustively covered.** The bridge handles `FARULE`, `FAMOVE`, `FASTATUS`, `FASKIP`, `FATIMELEFT`, `FARESULT`, `FASCORE`. New commands added by Fox in the future may be silently ignored.
+- **Undo / delete move / clear board are not locked.** Only placement on the board is blocked. If you also want the menu items `Clear Board`, `Delete Move`, `Delete Branch`, and `Undo` to be disabled during a Fox game, this must be added manually in `Menu.java`.
+- **Windows only (tested).** The bridge uses standard `java.net` APIs and should work on Linux and macOS, but this has not been tested.
+- **Double-engine mode is not supported.** `sendCommandNoLeelaz2` is used exclusively, so `Lizzie.leelaz2` will not participate in Fox games.
+
+---
+
+## Credits & Upstream Projects
+
+This project would not exist without the work of the following open-source projects:
+
+### LizzieYzy
+
+- Author: **yzyray**
+- Repository: <https://github.com/yzyray/lizzieyzy>
+- License: GPL-3.0
+
+LizzieYzy is the GUI this fork is built on. All board rendering, variation tree, winrate graph, engine management, and SGF handling come from the upstream project.
+
+### KataGo
+
+- Author: **David J. Wu** and contributors
+- Repository: <https://github.com/lightvector/KataGo>
+- License: MIT
+
+KataGo is the recommended engine. The bridge was developed and tested against KataGo 1.10+ with `kata-genmove_analyze` and `kata-set-rules`.
+
+### Leela Zero
+
+- Repository: <https://github.com/leela-zero/leela-zero>
+- License: GPL-3.0
+
+Leela Zero is the original engine LizzieYzy targets. The GTP handling code paths in `Leelaz.java` are largely inherited from Lizzie and Leela Zero.
+
+### SakuraGTP
+
+- Repository: <https://github.com/SakuraGoH/SakuraGTP>
+- License: MIT
+
+SakuraGTP is a Python implementation of the same Fox bridge concept. The Fox protocol parsing, `FAMOVE`/`FASTATUS` semantics, and the `AFPLAY`/`AFSKIP`/`AFGIVEUP`/`AFSCORE` response shapes were cross-checked against SakuraGTP's behavior. The Java bridge is a from-scratch implementation, but its protocol understanding owes a lot to SakuraGTP.
+
+### Original Lizzie
+
+- Repository: <https://github.com/featurecat/lizzie>
+- License: GPL-3.0
+
+The base Lizzie project that all of the above derivatives stem from.
+
+### Fox Weiqi (野狐围棋)
+
+- Website: <https://www.foxwq.com/>
+- Client download: <https://www.foxwq.com/download/>
+
+The Fox client is proprietary software. This bridge interacts with it only through the officially supported local AI socket, using the message shapes that the client itself sends.
+
+---
+
+## License
+
+This project is distributed under the **GNU General Public License v3.0**, the same license as the upstream LizzieYzy project.
+
+See [`LICENSE`](LICENSE) for the full text.
+
+You are free to use, modify, and redistribute this software, provided that:
+
+- The source code (including any modifications you make) is made available under the same license.
+- The original copyright notices are preserved.
+- Any derivative work is clearly marked as such.
+
+If you distribute a compiled jar, you **must** also make the corresponding source code available, as required by the GPL.
+
+---
+
+## Disclaimer
+
+This software is provided "as is", without warranty of any kind. The authors are not responsible for:
+
+- Account bans or warnings issued by Fox Weiqi for any reason.
+- Incorrect moves, missed moves, or board desynchronization caused by network issues, engine crashes, or protocol changes.
+- Any loss of games, rating, or money resulting from use of this software.
+
+Use at your own risk.
+
