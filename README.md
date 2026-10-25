@@ -274,7 +274,7 @@ Leela Zero is the original engine LizzieYzy targets. The GTP handling code paths
 ### SakuraGTP
 
 - Repository: <https://github.com/SakuraGoH/SakuraGTP>
-- License: MIT
+- License: GPL-3.0
 
 SakuraGTP is a Python implementation of the same Fox bridge concept. The Fox protocol parsing, `FAMOVE`/`FASTATUS` semantics, and the `AFPLAY`/`AFSKIP`/`AFGIVEUP`/`AFSCORE` response shapes were cross-checked against SakuraGTP's behavior. The Java bridge is a from-scratch implementation, but its protocol understanding owes a lot to SakuraGTP.
 
