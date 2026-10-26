@@ -356,6 +356,21 @@ public class Lizzie {
       LizzieFrame.sendAiTime(false, engine, false);
       LizzieFrame.menu.showPda(Lizzie.leelaz.isKataGoPda);
     }
+
+    // ---- 主引擎启动成功后，若用户从未手动设置过“形势判断引擎命令行”，
+    //      自动把它设为主引擎的完整命令行（两个命令行一模一样）。
+    //      用户之后在“形势判断设置”里点确定会置 estimateCommandUserSet=true，
+    //      此后不再自动覆盖。
+    if (engine == leelaz
+        && !isEngineGame
+        && engine.isKatago
+        && !Lizzie.config.estimateCommandUserSet
+        && engine.engineCommand != null
+        && !engine.engineCommand.trim().isEmpty()) {
+      Lizzie.config.estimateCommand = engine.engineCommand;
+      Lizzie.config.uiConfig.put("estimate-command", Lizzie.config.estimateCommand);
+    }
+
     if (engine != leelaz) return;
 
     if (!isEngineGame && !frame.isPlayingAgainstLeelaz) {

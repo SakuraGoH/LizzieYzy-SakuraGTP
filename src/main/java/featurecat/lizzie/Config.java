@@ -72,6 +72,10 @@ public class Config {
           + File.separator
           + "estimate.cfg";
   public Double estimateThreshold = 0.4;
+  // 用户是否手动设置过 estimateCommand。
+  // false 时，主引擎启动成功后会自动把 estimateCommand 设成主引擎命令行；
+  // 用户一旦在“形势判断设置”里点过确定，这里变 true，之后不再自动覆盖。
+  public boolean estimateCommandUserSet = false;
 
   public boolean showSuggestionVariations = true;
   public boolean showWinrateInSuggestion = true;
@@ -987,6 +991,7 @@ public class Config {
                 + File.separator
                 + "estimate.cfg");
     estimateThreshold = uiConfig.optDouble("estimate-threshold", 0.4);
+    estimateCommandUserSet = uiConfig.optBoolean("estimate-command-user-set", false);
 
     showKataGoEstimateNormal = uiConfig.optBoolean("show-katago-estimate-normal", false);
     showKataGoEstimateBySize = uiConfig.optBoolean("show-katago-estimate-by-size", false);
