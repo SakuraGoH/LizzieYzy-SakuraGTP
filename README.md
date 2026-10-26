@@ -288,7 +288,6 @@ The base Lizzie project that all of the above derivatives stem from.
 ### Fox Weiqi (野狐围棋)
 
 - Website: <https://www.foxwq.com/>
-- Client download: <https://www.foxwq.com/download/>
 
 The Fox client is proprietary software. This bridge interacts with it only through the officially supported local AI socket, using the message shapes that the client itself sends.
 
