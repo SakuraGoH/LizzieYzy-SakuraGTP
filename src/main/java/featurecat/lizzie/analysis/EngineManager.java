@@ -1287,6 +1287,19 @@ public class EngineManager {
                   .engineList
                   .get(engineGameInfo.whiteEngineIndex)
                   .sendCommand("clear_cache");
+
+              // ---- 引擎对局开始时，向两个 KataGo 引擎统一下发全局规则 ----
+              applyGlobalRulesToEngine(engineList.get(engineGameInfo.blackEngineIndex));
+              applyGlobalRulesToEngine(engineList.get(engineGameInfo.whiteEngineIndex));
+
+              Lizzie.engineManager
+                  .engineList
+                  .get(engineGameInfo.blackEngineIndex)
+                  .sendCommand("clear_cache");
+              Lizzie.engineManager
+                  .engineList
+                  .get(engineGameInfo.whiteEngineIndex)
+                  .sendCommand("clear_cache");
               if (firstTime) {
                 if (engineList.get(engineGameInfo.firstEngineIndex).isKatago) {
                   if (!engineList.get(engineGameInfo.firstEngineIndex).recentRulesLine.equals("")
@@ -1417,6 +1430,12 @@ public class EngineManager {
               engineList.get(engineGameInfo.whiteEngineIndex).nameCmd();
               engineList.get(engineGameInfo.whiteEngineIndex).notPondering();
 
+              // ---- 引擎对局开始时，向两个 KataGo 引擎统一下发全局规则 ----
+              // 避免引擎 A 用自己的 initialCommand 规则、引擎 B 用全局规则，导致两引擎规则不一致。
+              // 只对 isKatago 的引擎下发 kata-set-rules，非 KataGo 引擎跳过。
+              applyGlobalRulesToEngine(engineList.get(engineGameInfo.blackEngineIndex));
+              applyGlobalRulesToEngine(engineList.get(engineGameInfo.whiteEngineIndex));
+
               if (Lizzie.config.pkAdvanceTimeSettings) {
                 Lizzie.engineManager
                     .engineList
@@ -1527,6 +1546,51 @@ public class EngineManager {
     gameInfo.setPlayerBlack(engineList.get(engineGameInfo.blackEngineIndex).oriEnginename);
     Lizzie.frame.updateTitle();
     LizzieFrame.menu.toggleDoubleMenuGameStatus();
+  }
+
+  /**
+   * 引擎对局开始时，向单个引擎下发当前全局规则。
+   *
+   * <p>只对 KataGo 引擎生效（非 KataGo 没有 kata-set-rules 命令）。 规则来自 Lizzie.config.kataRules（JSON 字符串）。 若
+   * Lizzie.config.kataRules 为空，跳过（让引擎按自己的配置走）。
+   *
+   * <p>这样能保证两个引擎在同一个对局里规则一致， 不再出现「A 用自己的 initialCommand 规则、B 用全局规则」的情况。
+   */
+  private void applyGlobalRulesToEngine(Leelaz engine) {
+    if (engine == null) return;
+    if (!engine.isKatago) return;
+    String rules = Lizzie.config.kataRules;
+    if (rules == null || rules.trim().isEmpty()) return;
+    engine.sendCommand("kata-set-rules " + rules);
+    // 顺便同步 usingSpecificRules，让左侧规则文字立即正确
+    try {
+      org.json.JSONObject jo = new org.json.JSONObject(rules);
+      int newRules = -1;
+      if (jo.optString("scoring", "").contentEquals("AREA")
+          && jo.optString("ko", "").contentEquals("POSITIONAL")
+          && jo.optBoolean("suicide", false)
+          && jo.optString("tax", "").contentEquals("NONE")
+          && jo.optString("whiteHandicapBonus", "").contentEquals("N")
+          && !jo.optBoolean("hasButton", true)) {
+        newRules = 4;
+      } else if (jo.optString("scoring", "").contentEquals("AREA")
+          && jo.optString("tax", "").contentEquals("NONE")
+          && !jo.optBoolean("hasButton", true)) {
+        newRules = 1;
+      } else if (jo.optString("scoring", "").contentEquals("AREA")
+          && jo.optString("tax", "").contentEquals("ALL")
+          && !jo.optBoolean("hasButton", true)) {
+        newRules = 2;
+      } else if (jo.optString("scoring", "").contentEquals("TERRITORY")
+          && jo.optString("tax", "").contentEquals("SEKI")) {
+        newRules = 3;
+      } else if (jo.optString("scoring", "").contentEquals("AREA")
+          || jo.optString("scoring", "").contentEquals("TERRITORY")) {
+        newRules = 5;
+      }
+      engine.usingSpecificRules = newRules;
+    } catch (Exception ignored) {
+    }
   }
 
   //  private void checkEngineNotHang() {
@@ -1641,6 +1705,9 @@ public class EngineManager {
   public void updateEngines() throws JSONException, IOException {
     isUpdating = true;
     int preIndex = currentEngineNo;
+    // 关键：记录更新前引擎是否处于关闭状态。
+    // 若为 true，更新后不应自动启动任何引擎。
+    boolean wasEngineClosed = (preIndex < 0);
     killAllEngines();
     String currentEngineName = Lizzie.leelaz.oriEnginename;
     ArrayList<EngineData> engineData = Utils.getEngineData();
@@ -1666,7 +1733,7 @@ public class EngineManager {
       e.userName = engineDt.userName;
       e.password = engineDt.password;
       e.initialCommand = engineDt.initialCommand;
-      if (!loadLeelaz && engineDt.name.equals(currentEngineName)) {
+      if (!wasEngineClosed && !loadLeelaz && engineDt.name.equals(currentEngineName)) {
         loadLeelaz = true;
         if (e.oriWidth != Board.boardWidth || e.oriHeight != Board.boardHeight) {
           Board.boardWidth = e.oriWidth;
@@ -1702,7 +1769,8 @@ public class EngineManager {
           }
         }.start();
       } else {
-        if (e.preload) {
+        // 更新前引擎已关闭时，也不再按 preload 启动引擎。
+        if (!wasEngineClosed && e.preload) {
           new Thread() {
             public void run() {
               try {
@@ -1717,10 +1785,21 @@ public class EngineManager {
       }
       engineList.add(e);
     }
-    if (!loadLeelaz && preIndex >= 0) {
+    if (!wasEngineClosed && !loadLeelaz && preIndex >= 0) {
       switchEngine(preIndex, true);
     }
-
+    // 更新前引擎已关闭：保持关闭状态
+    if (wasEngineClosed) {
+      currentEngineNo = -1;
+      engineNo = -1;
+      isEmpty = true;
+      Lizzie.leelaz.isLoaded = true;
+      Lizzie.leelaz.notPondering();
+      Menu.engineMenu.setText(resourceBundle.getString("Menu.noEngine"));
+      if (Lizzie.config.isDoubleEngineMode()) {
+        Menu.engineMenu2.setText(resourceBundle.getString("Menu.noEngine"));
+      }
+    }
     int j = LizzieFrame.toolbar.enginePkBlack.getItemCount();
     LizzieFrame.toolbar.removeEngineLis();
     for (int i = 0; i < j; i++) {
