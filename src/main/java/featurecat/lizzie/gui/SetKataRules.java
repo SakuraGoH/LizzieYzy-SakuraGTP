@@ -1,6 +1,7 @@
 package featurecat.lizzie.gui;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.util.Utils;
 import java.awt.Dimension;
 import java.awt.Insets;
@@ -328,41 +329,67 @@ public class SetKataRules extends JDialog {
             if (rdoButtonGo.isSelected()) jo.put("hasButton", true);
             if (rdoNoButtonGo.isSelected()) jo.put("hasButton", false);
 
-            int oriRules = Lizzie.leelaz.usingSpecificRules;
+            // 先根据 UI 选项算出新的 usingSpecificRules 分类（1~5，或 -1）
+            int newRules = -1;
             if (jo.optString("scoring", "").contentEquals("AREA")
                 && jo.optString("ko", "").contentEquals("POSITIONAL")
                 && jo.optBoolean("suicide", false)
                 && jo.optString("tax", "").contentEquals("NONE")
                 && jo.optString("whiteHandicapBonus", "").contentEquals("N")
                 && !jo.optBoolean("hasButton", true)) {
-              Lizzie.leelaz.usingSpecificRules = 4; // tt规则
+              newRules = 4; // tt规则
             } else if (jo.optString("scoring", "").contentEquals("AREA")
                 && jo.optString("tax", "").contentEquals("NONE")
                 && !jo.optBoolean("hasButton", true)) {
-              Lizzie.leelaz.usingSpecificRules = 1; // 中国规则
+              newRules = 1; // 中国规则
             } else if (jo.optString("scoring", "").contentEquals("AREA")
                 && jo.optString("tax", "").contentEquals("ALL")
                 && !jo.optBoolean("hasButton", true)) {
-              Lizzie.leelaz.usingSpecificRules = 2; // 中古规则
+              newRules = 2; // 中古规则
             } else if (jo.optString("scoring", "").contentEquals("TERRITORY")
                 && jo.optString("tax", "").contentEquals("SEKI")) {
-              Lizzie.leelaz.usingSpecificRules = 3; // 日本规则
+              newRules = 3; // 日本规则
             } else if (jo.optString("scoring", "").contentEquals("AREA")
                 || jo.optString("scoring", "").contentEquals("TERRITORY")) {
-              Lizzie.leelaz.usingSpecificRules = 5; // 其他规则
+              newRules = 5; // 其他规则
             }
-            if (Lizzie.leelaz.usingSpecificRules != oriRules) Lizzie.frame.refresh();
-            Lizzie.leelaz.sendCommand("kata-set-rules " + jo.toString());
 
+            int oriRules = Lizzie.leelaz.usingSpecificRules;
+            if (Lizzie.leelaz != null) Lizzie.leelaz.usingSpecificRules = newRules;
+            if (newRules != oriRules) Lizzie.frame.refresh();
+
+            // 1. 无条件记录“当前全局规则”
+            Lizzie.config.kataRules = jo.toString();
+            Lizzie.config.uiConfig.put("kata-rules", Lizzie.config.kataRules);
             if (chkbxAutoLoadRules.isSelected()) {
               Lizzie.config.autoLoadKataRules = true;
-              Lizzie.config.kataRules = jo.toString();
-              Lizzie.config.uiConfig.put("kata-rules", Lizzie.config.kataRules);
               Lizzie.config.uiConfig.put("auto-load-kata-rules", true);
             } else {
               Lizzie.config.autoLoadKataRules = false;
               Lizzie.config.uiConfig.put("auto-load-kata-rules", false);
             }
+
+            // 2. 向当前所有已启动的 KataGo 引擎广播新规则，
+            //    并同步更新每个引擎的 usingSpecificRules，
+            //    否则对局中轮到另一个引擎那手时，drawCaptured 读到旧值，
+            //    左侧“xx规则”会显示切换之前的值。
+            String rulesCmd = "kata-set-rules " + jo.toString();
+            boolean sent = false;
+            if (Lizzie.engineManager != null && Lizzie.engineManager.engineList != null) {
+              for (Leelaz eng : Lizzie.engineManager.engineList) {
+                if (eng != null && eng.isKatago && eng.isStarted()) {
+                  eng.sendCommand(rulesCmd);
+                  eng.usingSpecificRules = newRules;
+                  sent = true;
+                }
+              }
+            }
+            if (!sent && Lizzie.leelaz != null && Lizzie.leelaz.isKatago) {
+              // 兜底：engineList 为空时只发给当前引擎
+              Lizzie.leelaz.sendCommand(rulesCmd);
+              Lizzie.leelaz.usingSpecificRules = newRules;
+            }
+
             Lizzie.leelaz.getParameterScadule(false);
             Lizzie.leelaz.sendCommand("kata-get-rules");
             if (Lizzie.leelaz.isPondering()) Lizzie.leelaz.ponder();

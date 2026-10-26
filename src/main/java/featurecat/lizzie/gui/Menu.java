@@ -51,6 +51,8 @@ public class Menu extends JMenuBar {
   public static JFontMenu shutdownEngine;
   public static JFontMenu quickLinks;
   private JFontMenu contributeMenu;
+  // 野狐协议直连的勾选菜单项
+  public static JFontCheckBoxMenuItem foxDirectItem;
   JFontMenuItem shutdownAllEngine;
   JFontMenuItem shutdownCurrentEngine;
   JFontMenuItem restartCurrentEngine;
@@ -4019,12 +4021,16 @@ public class Menu extends JMenuBar {
         });
 
     // ---- 野狐（协议直连）----
-    final JFontMenuItem foxDirect = new JFontMenuItem("野狐（协议直连）"); // 试点中文写死，后续可走 resourceBundle
-    live.add(foxDirect);
-    foxDirect.addActionListener(
+    foxDirectItem = new JFontCheckBoxMenuItem("野狐（协议直连）"); // 试点中文写死，后续可走 resourceBundle
+    foxDirectItem.setState(Lizzie.foxBridge != null);
+    live.add(foxDirectItem);
+    foxDirectItem.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
             Lizzie.frame.toggleFoxDirect();
+            // 勾选状态以实际 foxBridge 是否在运行 为准，
+            // 而不是以点击后的选中状态为准，避免启动失败时勾还在。
+            foxDirectItem.setState(Lizzie.foxBridge != null);
           }
         });
 
@@ -4095,6 +4101,10 @@ public class Menu extends JMenuBar {
             else alwaysKeepBoardStatSync.setState(false);
             if (Lizzie.config.readBoardGetFocus) readBoardGetFocus.setState(true);
             else readBoardGetFocus.setState(false);
+            // 野狐协议直连勾选状态：以 foxBridge 是否在运行 为准
+            if (foxDirectItem != null) {
+              foxDirectItem.setState(Lizzie.foxBridge != null);
+            }
           }
 
           @Override

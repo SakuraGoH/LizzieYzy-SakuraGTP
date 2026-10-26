@@ -30,7 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
-import javax.swing.JDialog;
+import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.text.AttributeSet;
@@ -40,7 +40,7 @@ import javax.swing.text.SimpleAttributeSet;
 import javax.swing.text.StyleConstants;
 import org.json.JSONArray;
 
-public class GtpConsolePane extends JDialog {
+public class GtpConsolePane extends JFrame {
   private final ResourceBundle resourceBundle = Lizzie.resourceBundle;
 
   // private int scrollLength = 0;
@@ -59,8 +59,14 @@ public class GtpConsolePane extends JDialog {
 
   /** Creates a Gtp Console Window */
   public GtpConsolePane(Window owner) {
-    super(owner);
+    // JFrame 没有 JFrame(Window) 构造。
+    // owner 参数保留是为了兼容外部所有 new GtpConsolePane(Lizzie.frame) 调用，
+    // 但不再把主窗口作为 owner，这样主窗口最小化时 GTP 控制台不会跟着最小化。
+    super();
     setTitle(resourceBundle.getString("GtpConsolePane.title"));
+    // JFrame 默认就有最小化、最大化、关闭按钮，且 resizable=true。
+    // 明确写一遍，防止外部代码设置过又忘了恢复。
+    setResizable(true);
     try {
       gtpFont =
           Font.createFont(

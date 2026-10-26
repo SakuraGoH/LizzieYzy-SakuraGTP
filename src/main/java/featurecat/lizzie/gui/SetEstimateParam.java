@@ -102,6 +102,9 @@ public class SetEstimateParam extends JDialog {
             Lizzie.config.estimateCommand = textAreaCommand.getText();
             Lizzie.config.uiConfig.put("estimate-command", Lizzie.config.estimateCommand);
             Lizzie.config.uiConfig.put("estimate-threshold", Lizzie.config.estimateThreshold);
+            // 用户手动点过确定，标记为“已手动设置”，之后主引擎启动不再自动覆盖
+            Lizzie.config.estimateCommandUserSet = true;
+            Lizzie.config.uiConfig.put("estimate-command-user-set", true);
             Lizzie.frame.restartZen();
             Lizzie.frame.countstones(false);
           }

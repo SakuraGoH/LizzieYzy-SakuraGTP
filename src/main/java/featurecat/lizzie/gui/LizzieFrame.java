@@ -2369,6 +2369,11 @@ public class LizzieFrame extends JFrame {
     syncBoard = false;
     bothSync = false;
     foxGameInputLocked = false;
+    // 同步菜单勾选状态
+    try {
+      if (Menu.foxDirectItem != null) Menu.foxDirectItem.setState(false);
+    } catch (Exception ignored) {
+    }
   }
 
   public void toggleFoxDirect() {
@@ -2991,6 +2996,7 @@ public class LizzieFrame extends JFrame {
 
   public static void sendAiTime(boolean needCountDown, Leelaz engine, boolean showTimeMsg) {
     if (Lizzie.config.advanceTimeSettings) {
+      // 用户启用了“高级时间设置”
       Lizzie.leelaz.sendCommand(Lizzie.config.advanceTimeTxt);
       if (needCountDown) {
         Lizzie.engineManager.playingAgainstHumanEngineCountDown = new EngineCountDown();
@@ -3005,52 +3011,59 @@ public class LizzieFrame extends JFrame {
           Lizzie.engineManager.StartCountDown();
         }
       }
+    } else if (Lizzie.config.kataTimeSettings) {
+      // 用户启用了“KataGo 时间设置”
+      String txtKataTimeSettings = "kata-time_settings ";
+      switch (Lizzie.config.kataTimeType) {
+        case 0:
+          txtKataTimeSettings +=
+              "byoyomi "
+                  + Lizzie.config.kataTimeMainTimeMins * 60
+                  + " "
+                  + Lizzie.config.kataTimeByoyomiSecs
+                  + " "
+                  + Lizzie.config.kataTimeByoyomiTimes;
+          break;
+        case 1:
+          txtKataTimeSettings +=
+              "fischer "
+                  + Lizzie.config.kataTimeMainTimeMins * 60
+                  + " "
+                  + Lizzie.config.kataTimeFisherIncrementSecs;
+          break;
+        case 2:
+          txtKataTimeSettings += "absolute " + Lizzie.config.kataTimeMainTimeMins * 60;
+          break;
+      }
+      engine.sendCommand(txtKataTimeSettings);
+      if (needCountDown) {
+        Lizzie.engineManager.playingAgainstHumanEngineCountDown = new EngineCountDown();
+        if (!Lizzie.engineManager.playingAgainstHumanEngineCountDown.setEngineCountDown(
+            txtKataTimeSettings, Lizzie.leelaz)) {
+          Lizzie.engineManager.playingAgainstHumanEngineCountDown = null;
+          Utils.showMsgNoModal(
+              Lizzie.resourceBundle.getString("EngineManager.parseAdvcanceTimeSettingsFailed"));
+        } else {
+          Lizzie.engineManager.playingAgainstHumanEngineCountDown.initialize(
+              !Lizzie.frame.playerIsBlack);
+          Lizzie.engineManager.StartCountDown();
+        }
+      }
+      if (showTimeMsg && !engine.isKatago) {
+        Utils.showMsg(Lizzie.resourceBundle.getString("LizzieFrame.sendTimes.kataGoTimeMismatch"));
+      }
+    } else if (Lizzie.config.limitTime) {
+      // 用户勾选了“时间设置”（单步分析时限），按用户设置下发
+      engine.sendCommand("time_settings 0 " + (Lizzie.config.maxAnalyzeTimeMillis / 1000) + " 1");
+      // 如果引擎是 KataGo，用 kata-time_settings absolute 更准确
+      if (engine.isKatago) {
+        engine.sendCommand(
+            "kata-time_settings absolute " + (Lizzie.config.maxAnalyzeTimeMillis / 1000));
+      }
     } else {
-      if (Lizzie.config.kataTimeSettings) {
-        // kata-time_settings fischer byoyomi absolute
-        String txtKataTimeSettings = "kata-time_settings ";
-        switch (Lizzie.config.kataTimeType) {
-          case 0:
-            txtKataTimeSettings +=
-                "byoyomi "
-                    + Lizzie.config.kataTimeMainTimeMins * 60
-                    + " "
-                    + Lizzie.config.kataTimeByoyomiSecs
-                    + " "
-                    + Lizzie.config.kataTimeByoyomiTimes;
-            break;
-          case 1:
-            txtKataTimeSettings +=
-                "fischer "
-                    + Lizzie.config.kataTimeMainTimeMins * 60
-                    + " "
-                    + Lizzie.config.kataTimeFisherIncrementSecs;
-            break;
-          case 2:
-            txtKataTimeSettings += "absolute " + Lizzie.config.kataTimeMainTimeMins * 60;
-            break;
-        }
-        engine.sendCommand(txtKataTimeSettings);
-        if (needCountDown) {
-          Lizzie.engineManager.playingAgainstHumanEngineCountDown = new EngineCountDown();
-          if (!Lizzie.engineManager.playingAgainstHumanEngineCountDown.setEngineCountDown(
-              txtKataTimeSettings, Lizzie.leelaz)) {
-            Lizzie.engineManager.playingAgainstHumanEngineCountDown = null;
-            Utils.showMsgNoModal(
-                Lizzie.resourceBundle.getString("EngineManager.parseAdvcanceTimeSettingsFailed"));
-          } else {
-            Lizzie.engineManager.playingAgainstHumanEngineCountDown.initialize(
-                !Lizzie.frame.playerIsBlack);
-            Lizzie.engineManager.StartCountDown();
-          }
-        }
-        if (showTimeMsg && !engine.isKatago) {
-          Utils.showMsg(
-              Lizzie.resourceBundle.getString(
-                  "LizzieFrame.sendTimes.kataGoTimeMismatch")); // "引擎时间设置为KataGo专用,但当前引擎不是KataGo,可能无法正确控制时间!");
-        }
-      } else
-        engine.sendCommand("time_settings 0 " + Lizzie.config.maxGameThinkingTimeSeconds + " 1");
+      // 关键修复：未启用任何时间设置时，不发 time_settings。
+      // 让引擎按自己的 gtp.cfg（maxTime / maxVisits 等）走。
+      // 这正是“配置文件里的 maxTime=10 才会生效”的关键。
     }
   }
 
