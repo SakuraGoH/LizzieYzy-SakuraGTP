@@ -2682,6 +2682,39 @@ public class Board {
     }
   }
 
+  public void moveToAnyPositionForReview(BoardHistoryNode targetNode) {
+    // 与 moveToAnyPosition 逻辑相同，但去掉 EngineManager.isEngineGame 的 return
+    List<Integer> targetParents = new ArrayList<Integer>();
+    List<Integer> sourceParents = new ArrayList<Integer>();
+    BiConsumer<BoardHistoryNode, List<Integer>> populateParent =
+        (node, parentList) -> {
+          Optional<BoardHistoryNode> prevNode = node.previous();
+          while (prevNode.isPresent()) {
+            BoardHistoryNode p = prevNode.get();
+            for (int m = 0; m < p.numberOfChildren(); m++) {
+              if (p.getVariation(m).get() == node) {
+                parentList.add(m);
+              }
+            }
+            node = p;
+            prevNode = p.previous();
+          }
+        };
+    populateParent.accept(history.getCurrentHistoryNode(), sourceParents);
+    populateParent.accept(targetNode, targetParents);
+    int targetDepth = targetParents.size();
+    int sourceDepth = sourceParents.size();
+    int maxDepth = min(targetParents.size(), sourceParents.size());
+    int depth;
+    for (depth = 0; depth < maxDepth; depth++) {
+      int sourceParent = sourceParents.get(sourceDepth - depth - 1);
+      int targetParent = targetParents.get(targetDepth - depth - 1);
+      if (sourceParent != targetParent) break;
+    }
+    for (int m = 0; m < sourceDepth - depth; m++) previousMove(false);
+    for (int m = targetDepth - depth; m > 0; m--) nextVariation(targetParents.get(m - 1));
+  }
+
   public void moveBranchUp() {
     synchronized (this) {
       history.getCurrentHistoryNode().topOfBranch().moveUp();
@@ -2695,6 +2728,10 @@ public class Board {
   }
 
   public void deleteMove() {
+    // 野狐对局中禁止删除手数，避免破坏主分支
+    if (Lizzie.foxBridge != null && Lizzie.frame != null && Lizzie.frame.foxGameInputLocked) {
+      return;
+    }
     synchronized (this) {
       BoardHistoryNode currentNode = history.getCurrentHistoryNode();
       if (currentNode.next(true).isPresent()) {
@@ -2887,6 +2924,10 @@ public class Board {
   //	    initializeForPk();
   //	  }
   public void clear(boolean isEngineGame) {
+    // 野狐对局中禁止清空棋盘，避免丢失对局数据
+    if (Lizzie.foxBridge != null && Lizzie.frame != null && Lizzie.frame.foxGameInputLocked) {
+      return;
+    }
     LizzieFrame.winrateGraph.resetMaxScoreLead();
     if (Lizzie.frame.readBoard != null) {
       Lizzie.frame.readBoard.firstSync = true;
@@ -2969,7 +3010,10 @@ public class Board {
                 && !history.getLastMove().isPresent()
                 && history.getCurrentHistoryNode().previous().isPresent()) nopass = true;
           }
-          if (!nopass) Lizzie.leelaz.undo(true, history.getPrevious().get().blackToPlay);
+          // 引擎对战/野狐对局：回看只动视图，不给引擎发 undo
+          if (EngineManager.isEngineGame || Lizzie.frame.foxGameInputLocked) {
+            modifyEnd();
+          } else if (!nopass) Lizzie.leelaz.undo(true, history.getPrevious().get().blackToPlay);
           else modifyEnd();
         }
         history.getCurrentHistoryNode().undoExtraStones();
