@@ -2369,9 +2369,9 @@ public class LizzieFrame extends JFrame {
     syncBoard = false;
     bothSync = false;
     foxGameInputLocked = false;
-    // 同步菜单勾选状态
+    // 同步顶部/底部菜单勾选状态
     try {
-      if (Menu.foxDirectItem != null) Menu.foxDirectItem.setState(false);
+      Menu.refreshFoxDirectItemState();
     } catch (Exception ignored) {
     }
   }
@@ -2434,6 +2434,7 @@ public class LizzieFrame extends JFrame {
     if (Lizzie.gtpConsole != null)
       Lizzie.gtpConsole.addLine(
           "[Fox] 协议直连已启动，端口 " + port + "，请在野狐 AI 设置中填 127.0.0.1:" + port + "\n");
+    Menu.refreshFoxDirectItemState();
   }
 
   public void openConfigDialog2(int index) {
@@ -2653,33 +2654,7 @@ public class LizzieFrame extends JFrame {
   }
 
   public void countstones(boolean shouldRetart) {
-    if (estimateResults == null || !estimateResults.isVisible()) {
-      if (Lizzie.frame.floatBoard != null && Lizzie.frame.floatBoard.isVisible())
-        estimateResults = new EstimateResults(null);
-      else estimateResults = new EstimateResults(this);
-    }
-    if (Lizzie.config.showKataGoEstimate
-        && !Lizzie.config.isHiddenKataEstimate
-        && Lizzie.leelaz.isKatago) {
-      Lizzie.config.showKataGoEstimate = false;
-      clearKataEstimate();
-      Lizzie.leelaz.ponder();
-    }
-    if (shouldRetart) {
-      if (zen == null
-          || zen.useJavaSSH && zen.javaSSHClosed
-          || (!zen.useJavaSSH && (zen.process == null || !zen.process.isAlive()))) {
-        try {
-          zen = new KataEstimate(false);
-        } catch (IOException e1) {
-          e1.printStackTrace();
-        }
-      }
-    }
-    //  zen.noread = false;
-    zen.syncboradstat();
-    zen.countStones();
-    isCounting = true;
+    // 形势判断功能已移除
   }
 
   public void restartZen() {
@@ -6225,7 +6200,8 @@ public class LizzieFrame extends JFrame {
   }
 
   public void onClicked(int x, int y) {
-    // 野狐直连对局中，禁止手动落子（但仍允许点击胜率图/变化树跳转）
+    // 野狐直连对局中：禁止手动落子，但允许点击已有落子回看历史（不改变棋局）
+    boolean foxLockedBoardClick = false;
     if (foxGameInputLocked) {
       Optional<int[]> boardCoordinatesLocked;
       if (Lizzie.config.isThinkingMode()) {
@@ -6236,8 +6212,15 @@ public class LizzieFrame extends JFrame {
         boardCoordinatesLocked = boardRenderer.convertScreenToCoordinates(x, y);
       }
       if (boardCoordinatesLocked.isPresent()) {
-        Utils.showMsgNoModal(Lizzie.resourceBundle.getString("LizzieFrame.foxGameNoManualPlace"));
-        return;
+        int[] c = boardCoordinatesLocked.get();
+        // 点击已有棋子：允许回看（跳到该手），不落子
+        if (Lizzie.board.getStones()[Board.getIndex(c[0], c[1])] != Stone.EMPTY) {
+          foxLockedBoardClick = true;
+        } else {
+          // 点击空点：禁止落子
+          Utils.showMsgNoModal(Lizzie.resourceBundle.getString("LizzieFrame.foxGameNoManualPlace"));
+          return;
+        }
       }
     }
 
@@ -6252,7 +6235,7 @@ public class LizzieFrame extends JFrame {
     }
     int moveNumber = winrateGraph.moveNumber(x - grx, y - gry);
 
-    if (boardCoordinates.isPresent()) {
+    if (boardCoordinates.isPresent() && !foxLockedBoardClick) {
       if (Lizzie.frame.isContributing) return;
       if (foxGameInputLocked) return;
       int[] coords = boardCoordinates.get();
@@ -6289,9 +6272,8 @@ public class LizzieFrame extends JFrame {
       }
     }
     if (Lizzie.config.showWinrateGraph && moveNumber >= 0) {
-      if (isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz) return;
-      // isPlayingAgainstLeelaz = false;
-      // noautocounting();
+      // 野狐对局中允许通过胜率图回看，但不改变主分支
+      if (!foxGameInputLocked && (isPlayingAgainstLeelaz || isAnaPlayingAgainstLeelaz)) return;
       if (canGoAfterload) Lizzie.board.goToMoveNumberBeyondBranch(moveNumber);
     }
     // if (Lizzie.config.showSubBoard && subBoardRenderer.isInside(x, y)) {
@@ -9571,14 +9553,7 @@ public class LizzieFrame extends JFrame {
       Lizzie.leelaz.ponder();
       Lizzie.frame.refresh();
     } else {
-      if (Lizzie.frame.isCounting) {
-        clearKataEstimate();
-        Lizzie.frame.refresh();
-        Lizzie.frame.isCounting = false;
-        estimateResults.setVisible(false);
-      } else {
-        Lizzie.frame.countstones(true);
-      }
+      // 形势判断功能已移除
     }
   }
 
@@ -11725,10 +11700,12 @@ public class LizzieFrame extends JFrame {
         return;
       }
     }
-    if (!EngineManager.isEngineGame && !EngineManager.isPreEngineGame) {
+    if (!EngineManager.isPreEngineGame) {
       for (int i = 0; i < movesToAdvance; i++) Lizzie.board.nextMove(false);
       Lizzie.board.clearAfterMove();
       Lizzie.frame.refresh();
+      // 回看后若回到主分支末尾，引擎对弈可继续；不回末尾则引擎暂停落子，等用户回到末尾
+      if (EngineManager.isEngineGame) Lizzie.frame.refresh();
     }
   }
 
@@ -11774,7 +11751,7 @@ public class LizzieFrame extends JFrame {
         return;
       }
     }
-    if (!EngineManager.isEngineGame && !EngineManager.isPreEngineGame) {
+    if (!EngineManager.isPreEngineGame) {
       for (int i = 0; i < movesToAdvance; i++) Lizzie.board.previousMove(false);
       Lizzie.board.clearAfterMove();
       Lizzie.frame.refresh();

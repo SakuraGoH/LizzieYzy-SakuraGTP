@@ -52,7 +52,6 @@ public class BottomToolbar extends JPanel {
   JButton firstButton;
   JButton lastButton;
   JButton clearButton;
-  JButton countButton;
   JButton finalScore;
   JButton forward10;
   JButton backward10;
@@ -70,6 +69,8 @@ public class BottomToolbar extends JPanel {
   JButton refresh;
   JPopupMenu yike;
   JPopupMenu sharePopup;
+  // 底部“同步”里的野狐直连菜单项，与顶部“同步”菜单项状态保持一致
+  public JFontCheckBoxMenuItem foxDirectItemBottom;
   JPopupMenu autoAnalyzePopup;
   JPopupMenu flashAnalyzePopup;
   JButton tryPlay;
@@ -300,8 +301,6 @@ public class BottomToolbar extends JPanel {
         new JFontButton(Lizzie.resourceBundle.getString("BottomToolbar.clearButton")); // ("清空棋盘");
     firstButton = new JFontButton("|<");
     lastButton = new JFontButton(">|");
-    countButton =
-        new JFontButton(Lizzie.resourceBundle.getString("BottomToolbar.countButton")); // ("形势判断");
     finalScore =
         new JFontButton(Lizzie.resourceBundle.getString("BottomToolbar.finalScore")); // ("终局数子");
     forward10 = new JFontButton(">>");
@@ -375,7 +374,6 @@ public class BottomToolbar extends JPanel {
     buttonPane.add(clearButton);
     buttonPane.add(lastButton);
     buttonPane.add(firstButton);
-    buttonPane.add(countButton);
     buttonPane.add(finalScore);
     buttonPane.add(forward10);
     buttonPane.add(savefile);
@@ -403,7 +401,6 @@ public class BottomToolbar extends JPanel {
     firstButton.setFocusable(false);
     lastButton.setFocusable(false);
     clearButton.setFocusable(false);
-    countButton.setFocusable(false);
     finalScore.setFocusable(false);
     forward10.setFocusable(false);
     backward10.setFocusable(false);
@@ -442,7 +439,6 @@ public class BottomToolbar extends JPanel {
     firstButton.setMargin(new Insets(0, 0, 0, 0));
     lastButton.setMargin(new Insets(0, 0, 0, 0));
     clearButton.setMargin(new Insets(0, 0, 0, 0));
-    countButton.setMargin(new Insets(0, 0, 0, 0));
     finalScore.setMargin(new Insets(0, 0, 0, 0));
     forward10.setMargin(new Insets(0, 0, 0, 0));
     backward10.setMargin(new Insets(0, 0, 0, 0));
@@ -494,7 +490,6 @@ public class BottomToolbar extends JPanel {
     setButtonSize(setMain, false);
     setButtonSize(backMain, false);
     setButtonSize(clearButton, false);
-    setButtonSize(countButton, false);
     setButtonSize(finalScore, false);
     setButtonSize(heatMap, false);
     setButtonSize(move, true);
@@ -768,6 +763,19 @@ public class BottomToolbar extends JPanel {
         });
     if (OS.isWindows()) yike.add(syncBoard);
 
+    // ---- 野狐（协议直连）---- 与顶部“同步 -> 野狐（协议直连）”联动
+    yike.addSeparator();
+    foxDirectItemBottom = new JFontCheckBoxMenuItem("野狐（协议直连）");
+    foxDirectItemBottom.setState(Lizzie.foxBridge != null);
+    yike.add(foxDirectItemBottom);
+    foxDirectItemBottom.addActionListener(
+        new ActionListener() {
+          public void actionPerformed(ActionEvent e) {
+            Lizzie.frame.toggleFoxDirect();
+            Menu.refreshFoxDirectItemState();
+          }
+        });
+
     autoPlay.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
@@ -779,6 +787,11 @@ public class BottomToolbar extends JPanel {
     deleteMove.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
+            if (Lizzie.foxBridge != null && Lizzie.frame.foxGameInputLocked) {
+              Utils.showMsgNoModal(
+                  Lizzie.resourceBundle.getString("LizzieFrame.foxGameNoManualPlace"));
+              return;
+            }
             Lizzie.board.deleteMoveNoHint();
           }
         });
@@ -926,7 +939,6 @@ public class BottomToolbar extends JPanel {
     forward10.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
             for (int i = 0; i < 10; i++) Lizzie.board.nextMove(false);
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.board.clearAfterMove();
@@ -937,7 +949,6 @@ public class BottomToolbar extends JPanel {
     backward10.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
             for (int i = 0; i < 10; i++) Lizzie.board.previousMove(false);
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.board.clearAfterMove();
@@ -948,7 +959,6 @@ public class BottomToolbar extends JPanel {
     forward1.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.board.nextMove(true);
             setTxtUnfocuse();
@@ -957,9 +967,12 @@ public class BottomToolbar extends JPanel {
     backward1.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
-            if (Lizzie.frame.isPlayingAgainstLeelaz || Lizzie.frame.isAnaPlayingAgainstLeelaz) {
+            if (EngineManager.isEngineGame || Lizzie.frame.foxGameInputLocked) {
+              // 引擎对战/野狐对局：正常回退一手，不做“退两手”处理
+              Lizzie.board.previousMove(true);
+            } else if (Lizzie.frame.isPlayingAgainstLeelaz
+                || Lizzie.frame.isAnaPlayingAgainstLeelaz) {
               Lizzie.board.previousMove(false);
               Lizzie.board.previousMove(true);
             } else Lizzie.board.previousMove(true);
@@ -969,15 +982,11 @@ public class BottomToolbar extends JPanel {
     gotomove.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (EngineManager.isEngineGame) return;
             checkMove();
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             txtMoveNumber.setBackground(Color.WHITE);
             txtMoveNumber.setText("");
-            // Lizzie.board.savelist(changeMoveNumber);
-            // Lizzie.board.setlist();
             if (changeMoveNumber != 0) Lizzie.board.goToMoveNumberBeyondBranch(changeMoveNumber);
-
             setTxtUnfocuse();
           }
         });
@@ -1020,6 +1029,11 @@ public class BottomToolbar extends JPanel {
     clearButton.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
+            if (Lizzie.foxBridge != null && Lizzie.frame.foxGameInputLocked) {
+              Utils.showMsgNoModal(
+                  Lizzie.resourceBundle.getString("LizzieFrame.foxGameNoManualPlace"));
+              return;
+            }
             Lizzie.frame.newEmptyBoard();
             setTxtUnfocuse();
           }
@@ -1027,7 +1041,6 @@ public class BottomToolbar extends JPanel {
     lastButton.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (Lizzie.engineManager.isEngineGame()) return;
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.frame.lastMove();
             setTxtUnfocuse();
@@ -1036,23 +1049,8 @@ public class BottomToolbar extends JPanel {
     firstButton.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
-            if (Lizzie.engineManager.isEngineGame()) return;
             if (Lizzie.frame.commentEditPane.isVisible()) Lizzie.frame.setCommentEditable(false);
             Lizzie.frame.firstMove();
-            setTxtUnfocuse();
-          }
-        });
-    countButton.addActionListener(
-        new ActionListener() {
-          public void actionPerformed(ActionEvent e) {
-            if (Lizzie.frame.isCounting) {
-              Lizzie.frame.clearKataEstimate();
-              Lizzie.frame.refresh();
-              Lizzie.frame.isCounting = false;
-              Lizzie.frame.estimateResults.setVisible(false);
-            } else {
-              Lizzie.frame.countstones(true);
-            }
             setTxtUnfocuse();
           }
         });
@@ -4059,8 +4057,6 @@ public class BottomToolbar extends JPanel {
     else backMain.setVisible(false);
     if (Lizzie.config.clearButton) clearButton.setVisible(true);
     else clearButton.setVisible(false);
-    if (Lizzie.config.countButton) countButton.setVisible(true);
-    else countButton.setVisible(false);
     if (Lizzie.config.finalScore) finalScore.setVisible(true);
     else finalScore.setVisible(false);
     if (Lizzie.config.heatMap) heatMap.setVisible(true);
@@ -4207,9 +4203,6 @@ public class BottomToolbar extends JPanel {
     if (savefile.isVisible()) {
       length = length + savefile.getWidth() - (Config.isScaled ? 0 : 1);
     }
-    if (countButton.isVisible()) {
-      length = length + countButton.getWidth() - (Config.isScaled ? 0 : 1);
-    }
     if (finalScore.isVisible()) {
       length = length + finalScore.getWidth() - (Config.isScaled ? 0 : 1);
     }
@@ -4307,10 +4300,6 @@ public class BottomToolbar extends JPanel {
     if (finalScore.isVisible()) {
       w = w - (finalScore.getWidth() - (Config.isScaled ? 0 : 1));
       finalScore.setLocation(w, 0);
-    }
-    if (countButton.isVisible()) {
-      w = w - (countButton.getWidth() - (Config.isScaled ? 0 : 1));
-      countButton.setLocation(w, 0);
     }
     if (lastButton.isVisible()) {
       w = w - (lastButton.getWidth() - (Config.isScaled ? 0 : 1));
@@ -4523,10 +4512,6 @@ public class BottomToolbar extends JPanel {
       lastButton.setLocation(w, 0);
       w = w + lastButton.getWidth() - (Config.isScaled ? 0 : 1);
     }
-    if (countButton.isVisible()) {
-      countButton.setLocation(w, 0);
-      w = w + countButton.getWidth() - (Config.isScaled ? 0 : 1);
-    }
     if (finalScore.isVisible()) {
       finalScore.setLocation(w, 0);
       w = w + finalScore.getWidth() - (Config.isScaled ? 0 : 1);
@@ -4632,6 +4617,11 @@ public class BottomToolbar extends JPanel {
     Lizzie.config.showWhiteCandidates = show;
   }
 
+  /** 顶部/底部“同步”菜单里的野狐直连项状态统一刷新。 */
+  public void refreshFoxDirectItemState(boolean running) {
+    if (foxDirectItemBottom != null) foxDirectItemBottom.setState(running);
+  }
+
   public void setPopupMenu() {
     autoAnalyzePopup.setVisible(true);
     autoAnalyzePopup.setVisible(false);
@@ -4650,7 +4640,6 @@ public class BottomToolbar extends JPanel {
   //    badMoves.setFont(smallFont);
   //    liveButton.setFont(smallFont);
   //    clearButton.setFont(smallFont);
-  //    countButton.setFont(smallFont);
   //    gotomove.setFont(smallFont);
   //    savefile.setFont(smallFont);
   //    openfile.setFont(smallFont);

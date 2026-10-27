@@ -3296,16 +3296,6 @@ public class Menu extends JMenuBar {
         });
     analyzeMenu.add(showPolicy);
 
-    final JFontMenuItem estimateStones =
-        new JFontMenuItem(resourceBundle.getString("Menu.estimateStones")); // ("形势判断( / 或小键盘点)");
-    // aboutItem.setMnemonic('A');
-    estimateStones.addActionListener(
-        new ActionListener() {
-          public void actionPerformed(ActionEvent e) {
-            Lizzie.frame.countstones(true);
-          }
-        });
-    analyzeMenu.add(estimateStones);
     analyzeMenu.addSeparator();
 
     final JFontMenuItem clearAllLizzieCache =
@@ -3640,6 +3630,11 @@ public class Menu extends JMenuBar {
     clearBoard.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
+            if (Lizzie.foxBridge != null && Lizzie.frame.foxGameInputLocked) {
+              Utils.showMsgNoModal(
+                  Lizzie.resourceBundle.getString("LizzieFrame.foxGameNoManualPlace"));
+              return;
+            }
             Lizzie.board.clear(false);
             Lizzie.frame.refresh();
           }
@@ -3716,6 +3711,11 @@ public class Menu extends JMenuBar {
     delete.addActionListener(
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
+            if (Lizzie.foxBridge != null && Lizzie.frame.foxGameInputLocked) {
+              Utils.showMsgNoModal(
+                  Lizzie.resourceBundle.getString("LizzieFrame.foxGameNoManualPlace"));
+              return;
+            }
             Lizzie.board.deleteMove();
           }
         });
@@ -4028,9 +4028,7 @@ public class Menu extends JMenuBar {
         new ActionListener() {
           public void actionPerformed(ActionEvent e) {
             Lizzie.frame.toggleFoxDirect();
-            // 勾选状态以实际 foxBridge 是否在运行 为准，
-            // 而不是以点击后的选中状态为准，避免启动失败时勾还在。
-            foxDirectItem.setState(Lizzie.foxBridge != null);
+            refreshFoxDirectItemState();
           }
         });
 
@@ -4958,27 +4956,6 @@ public class Menu extends JMenuBar {
     helpMenu.setFont(baseMenuFont);
     // helpMenu.setFont(headFont);
     this.add(helpMenu);
-
-    final JFontMenuItem checkUpdate =
-        new JFontMenuItem(resourceBundle.getString("Menu.checkUpdate")); // ("检查更新");
-    helpMenu.add(checkUpdate);
-
-    checkUpdate.addActionListener(
-        new ActionListener() {
-          public void actionPerformed(ActionEvent e) {
-            CheckVersion checkVersion = new CheckVersion(false, "", "");
-            checkVersion.setVisible(true);
-            //            Runnable runnable =
-            //                new Runnable() {
-            //                  public void run() {
-            //                    SocketCheckVersion socketCheckVersion = new SocketCheckVersion();
-            //                    socketCheckVersion.SocketCheckVersion(false);
-            //                  }
-            //                };
-            //            Thread thread = new Thread(runnable);
-            //            thread.start();
-          }
-        });
 
     final JFontMenuItem introduction =
         new JFontMenuItem(resourceBundle.getString("Menu.introduction")); // ("简介");
@@ -9842,6 +9819,16 @@ public class Menu extends JMenuBar {
   public void clearAllowAvoidButtonState() {
     if (selectAvoid != null) selectAvoid.setIcon(iconAvoid);
     if (selectAllow != null) selectAllow.setIcon(iconAllow);
+  }
+
+  /** 顶部“同步”与底部“同步”里的野狐直连菜单项状态统一刷新。 */
+  public static void refreshFoxDirectItemState() {
+    boolean running = Lizzie.foxBridge != null;
+    if (foxDirectItem != null) foxDirectItem.setState(running);
+    // 底部菜单项（BottomToolbar 里创建）通过回调统一刷新
+    if (LizzieFrame.toolbar != null) {
+      LizzieFrame.toolbar.refreshFoxDirectItemState(running);
+    }
   }
 
   public void updateEngineMenu() {

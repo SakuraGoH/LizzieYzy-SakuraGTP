@@ -551,11 +551,12 @@ public class Input implements MouseListener, KeyListener, MouseWheelListener, Mo
         break;
 
       case VK_HOME:
-        // Lizzie.frame.noautocounting();
-        // if (isinsertmode) {
-        // return;
-        // }
         if (controlIsPressed(e)) {
+          if (Lizzie.foxBridge != null && Lizzie.frame.foxGameInputLocked) {
+            Utils.showMsgNoModal(
+                Lizzie.resourceBundle.getString("LizzieFrame.foxGameNoManualPlace"));
+            break;
+          }
           Lizzie.board.clear(false);
           if (Lizzie.leelaz.isPondering()) {
             Lizzie.leelaz.ponder();
@@ -666,9 +667,10 @@ public class Input implements MouseListener, KeyListener, MouseWheelListener, Mo
         break;
       case VK_DELETE:
       case VK_BACK_SPACE:
-        // if (isinsertmode) {
-        // return;
-        // }
+        if (Lizzie.foxBridge != null && Lizzie.frame.foxGameInputLocked) {
+          Utils.showMsgNoModal(Lizzie.resourceBundle.getString("LizzieFrame.foxGameNoManualPlace"));
+          break;
+        }
         if (e.isAltDown()) {
           Lizzie.board.clearBestMovesAfter(Lizzie.board.getHistory().getStart());
         } else if (e.isShiftDown()) {
