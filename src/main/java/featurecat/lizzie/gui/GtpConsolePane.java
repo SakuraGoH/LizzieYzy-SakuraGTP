@@ -76,9 +76,16 @@ public class GtpConsolePane extends JFrame {
                   .getResourceAsStream("fonts/SourceCodePro-Regular.ttf"));
 
       gtpFont = gtpFont.deriveFont(Font.PLAIN, Config.frameFontSize);
+
+      // 关键：如果日志里有中文或特殊符号，用雅黑兜底
+      java.awt.Font fallbackFont =
+          new java.awt.Font("Microsoft YaHei, Consolas, Dialog", Font.PLAIN, Config.frameFontSize);
+      // 将两个字体合并，优先用 SourceCodePro（控制台显示好看），遇到不支持的用雅黑
+      gtpFont = gtpFont.canDisplayUpTo("中文测试") == -1 ? gtpFont : fallbackFont;
+
     } catch (IOException | FontFormatException e) {
       e.printStackTrace();
-      gtpFont = new Font(Font.MONOSPACED, Font.PLAIN, Config.frameFontSize);
+      gtpFont = new Font("Microsoft YaHei, Monospaced", Font.PLAIN, Config.frameFontSize);
     }
     docQueue = new ArrayDeque<>();
     boolean persisted =
