@@ -335,12 +335,23 @@ public class Lizzie {
   }
 
   public static void setUIFont(javax.swing.plaf.FontUIResource f) {
+    // 核心：创建一个带有“回退字体”的 Font 对象
+    // 即使主字体缺失（或者遇到奇怪的字符），也会交给 Microsoft YaHei / Dialog 渲染，不会变成方块
+    java.awt.Font baseFont = f;
+    java.awt.Font fallbackFont =
+        new java.awt.Font(
+            "Microsoft YaHei, Dialog, SansSerif", baseFont.getStyle(), baseFont.getSize());
+
+    javax.swing.plaf.FontUIResource fallbackResource =
+        new javax.swing.plaf.FontUIResource(fallbackFont);
+
     java.util.Enumeration keys = UIManager.getDefaults().keys();
     while (keys.hasMoreElements()) {
       Object key = keys.nextElement();
       Object value = UIManager.get(key);
       if (value instanceof javax.swing.plaf.FontUIResource) {
-        UIManager.put(key, f);
+        // 把原先的替换为带有回退的字体
+        UIManager.put(key, fallbackResource);
       }
     }
   }
