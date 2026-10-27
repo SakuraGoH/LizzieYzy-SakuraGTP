@@ -6644,6 +6644,19 @@ public class LizzieFrame extends JFrame {
       if (mouseOverCoordinate[0] != curCoords[0] || mouseOverCoordinate[1] != curCoords[1]) {
         isCoordsChanged = true;
         mouseOverCoordinate = curCoords;
+        // ================= 强行插入绘制虚影逻辑 =================
+        if (!isPlayingAgainstLeelaz && !isAnaPlayingAgainstLeelaz && !EngineManager.isEngineGame) {
+          Stone stoneHere = Lizzie.board.getStones()[Board.getIndex(curCoords[0], curCoords[1])];
+          if (stoneHere == Stone.EMPTY) {
+            boardRenderer.drawGhostStone(
+                curCoords[0], curCoords[1], Lizzie.board.getHistory().isBlacksTurn());
+            needRepaint = true;
+          } else {
+            boardRenderer.removeblock();
+            needRepaint = true;
+          }
+        }
+        // ========================================================
       }
       if (isCoordsChanged) {
         boolean isCurMouseOver = false;
@@ -6702,24 +6715,45 @@ public class LizzieFrame extends JFrame {
           isMouseOver = false;
         }
       }
-      if (shouldShowRect()) {
+      // 1. 只要不是引擎对战（包括普通分析、人机对弈），统统显示透明棋子虚影
+      if (shouldShowRect() && !EngineManager.isEngineGame) {
         isShowingRect = true;
         needRepaint = true;
         if (Lizzie.config.isDoubleEngineMode()) {
           Optional<int[]> coords2 = boardRenderer2.convertScreenToCoordinates(x, y);
           if (coords2.isPresent()) {
-            boardRenderer2.drawmoveblock(
+            boardRenderer2.drawGhostStone(
                 curCoords[0], curCoords[1], Lizzie.board.getHistory().isBlacksTurn());
-          } else
-            boardRenderer.drawmoveblock(
+          } else {
+            boardRenderer.drawGhostStone(
                 curCoords[0], curCoords[1], Lizzie.board.getHistory().isBlacksTurn());
-        } else
-          boardRenderer.drawmoveblock(
+          }
+        } else {
+          boardRenderer.drawGhostStone(
               curCoords[0], curCoords[1], Lizzie.board.getHistory().isBlacksTurn());
-      } else if (Lizzie.frame.isAnaPlayingAgainstLeelaz || Lizzie.frame.isPlayingAgainstLeelaz)
-        boardRenderer.removeblock();
-      if (Lizzie.config.isDoubleEngineMode()) {
-        boardRenderer2.removeblock();
+        }
+      }
+      // 2. 引擎对战时，什么都不画（彻底去掉黑色小方块和虚影）
+      else if (EngineManager.isEngineGame) {
+        if (isShowingRect) {
+          needRepaint = true;
+          boardRenderer.removeblock();
+          if (Lizzie.config.isDoubleEngineMode()) {
+            boardRenderer2.removeblock();
+          }
+          isShowingRect = false;
+        }
+      }
+      // 3. 鼠标移出棋盘，清除所有预览
+      else {
+        if (isShowingRect) {
+          needRepaint = true;
+          boardRenderer.removeblock();
+          if (Lizzie.config.isDoubleEngineMode()) {
+            boardRenderer2.removeblock();
+          }
+          isShowingRect = false;
+        }
       }
 
     } else {
@@ -6730,16 +6764,14 @@ public class LizzieFrame extends JFrame {
         clearMoved();
         isMouseOver = false;
       }
-      if (shouldShowRect()) {
-        if (isShowingRect) {
-
-          needRepaint = true;
-          boardRenderer.removeblock();
-          if (Lizzie.config.isDoubleEngineMode()) {
-            boardRenderer2.removeblock();
-          }
-          isShowingRect = false;
+      // 鼠标移出棋盘时，无条件清理所有虚影
+      if (isShowingRect) {
+        needRepaint = true;
+        boardRenderer.removeblock();
+        if (Lizzie.config.isDoubleEngineMode()) {
+          boardRenderer2.removeblock();
         }
+        isShowingRect = false;
       }
     }
     if (needRepaint) refresh();

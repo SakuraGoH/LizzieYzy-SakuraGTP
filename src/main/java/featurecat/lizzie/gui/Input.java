@@ -4,8 +4,11 @@ import static java.awt.event.KeyEvent.*;
 
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.analysis.EngineManager;
+import featurecat.lizzie.rules.Board;
+import featurecat.lizzie.rules.Stone;
 import featurecat.lizzie.util.Utils;
 import java.awt.event.*;
+import java.util.Optional;
 import javax.swing.SwingUtilities;
 
 public class Input implements MouseListener, KeyListener, MouseWheelListener, MouseMotionListener {
@@ -148,8 +151,9 @@ public class Input implements MouseListener, KeyListener, MouseWheelListener, Mo
 
   @Override
   public void mouseMoved(MouseEvent e) {
-    if (tempDrag) Lizzie.frame.DraggedDragged(Utils.zoomOut(e.getX()), Utils.zoomOut(e.getY()));
-    else {
+    if (tempDrag) {
+      Lizzie.frame.DraggedDragged(Utils.zoomOut(e.getX()), Utils.zoomOut(e.getY()));
+    } else {
       if (selectMode || e.isAltDown()) {
         return;
       }
@@ -162,9 +166,42 @@ public class Input implements MouseListener, KeyListener, MouseWheelListener, Mo
         Lizzie.frame.DraggedMoved(Utils.zoomOut(e.getX()), Utils.zoomOut(e.getY()));
         return;
       }
-      if (!Lizzie.frame.onMouseMoved(Utils.zoomOut(e.getX()), Utils.zoomOut(e.getY())))
+
+      // 调用核心方法处理坐标
+      if (!Lizzie.frame.onMouseMoved(Utils.zoomOut(e.getX()), Utils.zoomOut(e.getY()))) {
         Lizzie.board.clearPressStoneInfo(null);
-      // Lizzie.frame.processCommentMouseOverd(e);
+      }
+
+      // ======== 虚影绘制逻辑 ========
+      // 如果是纯引擎对战，直接清除并返回，不画任何东西
+      if (EngineManager.isEngineGame) {
+        LizzieFrame.boardRenderer.removeblock();
+        if (Lizzie.config.isDoubleEngineMode()) {
+          LizzieFrame.boardRenderer2.removeblock();
+        }
+        return;
+      }
+
+      // 普通分析模式下，绘制透明虚影
+      Optional<int[]> coords =
+          LizzieFrame.boardRenderer.convertScreenToCoordinates(
+              Utils.zoomOut(e.getX()), Utils.zoomOut(e.getY()));
+      if (coords.isPresent()) {
+        int[] curCoords = coords.get();
+        Stone stoneHere = Lizzie.board.getStones()[Board.getIndex(curCoords[0], curCoords[1])];
+        if (stoneHere == Stone.EMPTY) {
+          LizzieFrame.boardRenderer.drawGhostStone(
+              curCoords[0], curCoords[1], Lizzie.board.getHistory().isBlacksTurn());
+          Lizzie.frame.refresh(); // 强制刷新
+        } else {
+          LizzieFrame.boardRenderer.removeblock();
+          Lizzie.frame.refresh();
+        }
+      } else {
+        LizzieFrame.boardRenderer.removeblock();
+        Lizzie.frame.refresh();
+      }
+      // ========================================
     }
   }
 

@@ -1260,6 +1260,40 @@ public class BoardRenderer {
     g.dispose();
   }
 
+  // ==== 新增：绘制透明虚影的方法 ====
+  public void drawGhostStone(int x, int y, boolean isblack) {
+    if (boardWidth == 0 || boardHeight == 0) return;
+
+    // 创建一个透明的图像容器
+    blockimage = new BufferedImage(boardWidth, boardHeight, TYPE_INT_ARGB);
+
+    // 如果该位置已经有棋子了，就不显示虚影
+    Stone[] stones = Lizzie.board.getStones();
+    if (stones[Board.getIndex(x, y)].isBlack() || stones[Board.getIndex(x, y)].isWhite()) {
+      hasBlockimage = false;
+      return;
+    }
+
+    Graphics2D g = blockimage.createGraphics();
+    g.setRenderingHint(KEY_ANTIALIASING, VALUE_ANTIALIAS_ON);
+
+    // 设置透明度，0.5f 表示 50% 透明，你可以根据需要调整这个数值（0.0 全透明，1.0 不透明）
+    g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.45f));
+
+    int stoneX = scaledMarginWidth + squareWidth * x;
+    int stoneY = scaledMarginHeight + squareHeight * y;
+
+    // 获取真实棋子的图片大小
+    int size = stoneRadius * 2 + 1;
+    BufferedImage stoneImage = getScaleStone(isblack, size);
+
+    // 将半透明的棋子图片画上去
+    g.drawImage(stoneImage, stoneX - stoneRadius, stoneY - stoneRadius, size, size, null);
+
+    g.dispose();
+    hasBlockimage = true;
+  }
+
   public void drawFocusStone(int x, int y, Graphics2D g) {
     int stoneX = this.x + scaledMarginWidth + squareWidth * x;
     int stoneY = this.y + scaledMarginHeight + squareHeight * y;
