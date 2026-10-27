@@ -327,7 +327,9 @@ public class Leelaz {
         this.outputStream = new BufferedOutputStream(this.javaSSH.getStdin());
         InputStream err = this.javaSSH.getSterr();
         if (err != null) {
-          this.errorStream = new BufferedReader(new InputStreamReader(err));
+          this.errorStream =
+              new BufferedReader(
+                  new InputStreamReader(err, java.nio.charset.StandardCharsets.UTF_8));
         } else {
           this.errorStream = null;
         }
@@ -1147,7 +1149,10 @@ public class Leelaz {
   }
 
   private void parseLine(String line) {
-    // System.out.println(line);
+    if (line == null) return;
+    // 过滤掉所有乱码控制符，提取纯净的文本
+    line = line.replaceAll("[\\p{Cntrl}&&[^\r\n\t]]", "").trim();
+    if (line.isEmpty()) return;
     synchronized (this) {
       if (line.startsWith("info")) {
         if ((isResponseUpToDate())) {
@@ -2274,7 +2279,7 @@ public class Leelaz {
       }
     } else {
       if ((Lizzie.frame.isPlayingAgainstLeelaz || EngineManager.isEngineGame)
-          && line.startsWith("MALKOVICH:")) {
+          && line.contains("MALKOVICH:")) { // 从 startsWith 改成 contains
         if (line.contains("PDA")) {
           String value = line.substring(line.indexOf("PDA") + 4);
           value = value.substring(0, value.indexOf(")"));
@@ -2417,10 +2422,15 @@ public class Leelaz {
   private void read() {
     try {
       String line = "";
+      // 因为 SSHController 里已经滤掉了 ANSI，这里可以直接安全地读取
       while ((line = inputStream.readLine()) != null) {
         if (featurecat.lizzie.Lizzie.foxBridge != null) {
           featurecat.lizzie.Lizzie.foxBridge.onEngineOutput(line);
         }
+
+        // 如果这一行是完全空的，跳过
+        if (line.trim().isEmpty()) continue;
+
         if (getRcentLine) {
           if (line.startsWith("= {")) {
             recentRulesLine = line;

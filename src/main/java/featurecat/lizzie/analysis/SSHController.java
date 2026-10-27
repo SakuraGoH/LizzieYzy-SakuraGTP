@@ -1,19 +1,17 @@
 package featurecat.lizzie.analysis;
 
-import com.jcraft.jsch.ChannelShell;
+import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.Session;
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.util.Utils;
-import java.io.File;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import org.json.JSONException;
 
 public class SSHController {
   private Session session;
-  private ChannelShell channel;
+  private ChannelExec channel;
   private RemoteConnect newConnect;
   private Leelaz owner;
 
@@ -39,40 +37,20 @@ public class SSHController {
         jsch.addIdentity(keyFile.getAbsolutePath());
       }
 
-      // 使用 JSch 连接，完美支持 autodl 的域名和高位端口
       session = jsch.getSession(userName, newConnect.getIp(), newConnect.getPort());
       if (password != null && !password.isEmpty()) {
         session.setPassword(password);
       }
 
-      // 跳过 host key 检查（与原版行为一致，且避免首次连接时的弹窗）
       session.setConfig("StrictHostKeyChecking", "no");
-      // 设置超时时间
       session.connect(5000);
 
-      // 使用交互式 Shell（SakuraGTP 风格），比 exec 更稳定，支持复杂命令
-      channel = (ChannelShell) session.openChannel("shell");
-      // 关键1：不申请伪终端（pty），避免 autodl 输出带颜色控制符的乱码和登录欢迎界面
-      channel.setPty(false);
-
-      // 将 stderr 合并到 stdout，防止报错信息导致缓冲区阻塞
-      channel.setExtOutputStream(null, true);
-
-      // 初始化 I/O 流
-      InputStream in = channel.getInputStream();
-      OutputStream out = channel.getOutputStream();
+      channel = (ChannelExec) session.openChannel("exec");
+      // 必须加 2>&1，把 stderr 合并到 stdout，这样报错也能被读到
+      channel.setCommand(command + " 2>&1");
+      channel.setPty(false); // 禁用伪终端，杜绝提示符
 
       channel.connect(3000);
-
-      // 关键2：先发个 clear 把可能残留的启动信息刷掉
-      out.write("clear\n".getBytes());
-      out.flush();
-
-      // 发送用户的启动命令
-      if (command != null && !command.trim().isEmpty()) {
-        out.write((command + "\n").getBytes());
-        out.flush();
-      }
 
       return Boolean.TRUE;
     } catch (Exception e) {
@@ -113,17 +91,21 @@ public class SSHController {
     }
   }
 
+  public boolean isConnected() {
+    return session != null && session.isConnected() && channel != null && channel.isConnected();
+  }
+
   public InputStream getStdout() {
     try {
-      return channel.getInputStream();
+      // 用我们的 AnsiFilter 包装底层的流
+      return new AnsiFilterInputStream(channel.getInputStream());
     } catch (Exception e) {
       return null;
     }
   }
 
   public InputStream getSterr() {
-    // JSch 的 Shell 模式没有独立 stderr，合并到 stdout 了，这里返回空流防止 Leelaz 崩溃
-    return new java.io.ByteArrayInputStream(new byte[0]);
+    return new ByteArrayInputStream(new byte[0]); // stderr 被 2>&1 合并了，这里不需要
   }
 
   public OutputStream getStdin() {
@@ -134,7 +116,58 @@ public class SSHController {
     }
   }
 
-  public boolean isConnected() {
-    return session != null && session.isConnected() && channel != null && channel.isConnected();
+  /** SakuraGTP 级别的 ANSI 过滤器。 它不会卡死 readLine，并且精确剔除了所有的颜色控制字符。 */
+  private static class AnsiFilterInputStream extends FilterInputStream {
+    protected AnsiFilterInputStream(InputStream in) {
+      super(in);
+    }
+
+    @Override
+    public int read() throws IOException {
+      int c = super.read();
+      if (c == -1) return -1;
+
+      // 如果读到转义字符 (ESC, 27)
+      if (c == 27) {
+        int next = super.read();
+        if (next == '[') {
+          // 进入 CSI 序列，一直读到字母（@ 到 ~ 之间）为止
+          while ((next = super.read()) != -1) {
+            if (next >= '@' && next <= '~') {
+              break;
+            }
+          }
+        } else if (next == ']') {
+          // 进入 OSC 序列，一直读到 BEL(7) 或 ST(ESC \) 为止
+          while ((next = super.read()) != -1) {
+            if (next == 7) break;
+            if (next == 27) {
+              if (super.read() == '\\') break;
+            }
+          }
+        }
+        // 整个控制序列被丢弃，继续读下一个有效字符
+        return read();
+      }
+      return c;
+    }
+
+    @Override
+    public int read(byte[] b, int off, int len) throws IOException {
+      int count = 0;
+      while (count < len) {
+        int c = read();
+        if (c == -1) {
+          return count == 0 ? -1 : count;
+        }
+        b[off + count] = (byte) c;
+        count++;
+        // 遇到换行符立刻返回，保证 BufferedReader.readLine() 畅通无阻
+        if (c == '\n') {
+          break;
+        }
+      }
+      return count;
+    }
   }
 }
