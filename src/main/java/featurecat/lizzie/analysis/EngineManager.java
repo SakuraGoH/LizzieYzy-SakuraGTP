@@ -1333,15 +1333,14 @@ public class EngineManager {
                   }
                 }
               }
-              if (Lizzie.board.getHistory().isBlacksTurn()) {
+              if (Lizzie.board.getHistory().getMainEnd().getData().blackToPlay) {
                 Lizzie.leelaz = engineList.get(engineGameInfo.blackEngineIndex);
+                Lizzie.leelaz.genmoveForPk("b");
+                Lizzie.leelaz = engineList.get(engineGameInfo.whiteEngineIndex);
               } else {
                 Lizzie.leelaz = engineList.get(engineGameInfo.whiteEngineIndex);
-              }
-              if (Lizzie.config.newEngineGameHandicap > 0) {
-                Lizzie.board.hasStartStone = true;
-                Lizzie.board.addStartListAll();
-                Lizzie.board.flatten();
+                Lizzie.leelaz.genmoveForPk("w");
+                Lizzie.leelaz = engineList.get(engineGameInfo.blackEngineIndex);
               }
               int cmdNumberTemp = Lizzie.leelaz.cmdNumber;
               Runnable runnable1 =
@@ -1485,7 +1484,7 @@ public class EngineManager {
                   e.printStackTrace();
                 }
               }
-              if (Lizzie.board.getHistory().isBlacksTurn()) {
+              if (Lizzie.board.getHistory().getMainEnd().getData().blackToPlay) {
                 Lizzie.leelaz = engineList.get(engineGameInfo.blackEngineIndex);
                 Lizzie.leelaz.genmoveForPk("b");
                 Lizzie.leelaz = engineList.get(engineGameInfo.whiteEngineIndex);
@@ -2073,7 +2072,10 @@ public class EngineManager {
                 else if (index == engineGameInfo.blackEngineIndex && engineGameInfo.timeBlack > 0)
                   newEng.sendCommand("time_settings 0 " + engineGameInfo.timeBlack + " 1");
               }
-              if (Lizzie.board.getHistory().isBlacksTurn()) {
+              // 用主分支末尾的黑白方判断，避免用户回看时引擎误判
+              boolean mainEndBlackToPlay =
+                  Lizzie.board.getHistory().getMainEnd().getData().blackToPlay;
+              if (mainEndBlackToPlay) {
                 Lizzie.leelaz = engineList.get(engineGameInfo.blackEngineIndex);
                 Lizzie.leelaz.genmoveForPk("b");
               } else {
@@ -2081,7 +2083,9 @@ public class EngineManager {
                 Lizzie.leelaz.genmoveForPk("w");
               }
             } else {
-              if (Lizzie.board.getHistory().isBlacksTurn()) {
+              boolean mainEndBlackToPlay =
+                  Lizzie.board.getHistory().getMainEnd().getData().blackToPlay;
+              if (mainEndBlackToPlay) {
                 engineList.get(engineGameInfo.blackEngineIndex).ponder();
               } else {
                 engineList.get(engineGameInfo.whiteEngineIndex).ponder();
@@ -2272,18 +2276,12 @@ public class EngineManager {
     //  Lizzie.frame.boardRenderer.reverseBestmoves = false;
     clearFirstSecondEngineCountDown();
     Menu.engineMenu.setEnabled(true);
-    if (Lizzie.board.getData().blackToPlay) {
-      // switchEngine(Lizzie.frame.toolbar.engineWhite);
+    if (Lizzie.board.getHistory().getMainEnd().getData().blackToPlay) {
       Lizzie.leelaz = engineList.get(engineGameInfo.firstEngineIndex);
       engineList.get(engineGameInfo.firstEngineIndex).nameCmd();
-
-      // switchEngine(Lizzie.frame.toolbar.engineBlack);
     } else {
-      // switchEngine(Lizzie.frame.toolbar.engineBlack);
       Lizzie.leelaz = engineList.get(engineGameInfo.secondEngineIndex);
       engineList.get(engineGameInfo.secondEngineIndex).nameCmd();
-      // engineList.get(Lizzie.frame.toolbar.engineWhite).clear();
-      // switchEngine(Lizzie.frame.toolbar.engineWhite);
     }
     // this.currentEngineNo = Lizzie.leelaz.currentEngineN();
     // double komi = Lizzie.board.getHistory().getGameInfo().getKomi();
@@ -2364,7 +2362,9 @@ public class EngineManager {
               EngineCountDown countDown = null;
               if (isEngineGame) {
                 if (LizzieFrame.toolbar.isPkStop) return;
-                if (Lizzie.board.getHistory().isBlacksTurn()) {
+                boolean mainEndBlackToPlay =
+                    Lizzie.board.getHistory().getMainEnd().getData().blackToPlay;
+                if (mainEndBlackToPlay) {
                   if (firstEngineCountDown != null && firstEngineCountDown.isPlayBlack)
                     countDown = firstEngineCountDown;
                   else if (secondEngineCountDown != null && secondEngineCountDown.isPlayBlack)
