@@ -17,6 +17,7 @@ import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -324,7 +325,12 @@ public class Leelaz {
         this.javaSSHClosed = false;
         this.inputStream = new BufferedReader(new InputStreamReader(this.javaSSH.getStdout()));
         this.outputStream = new BufferedOutputStream(this.javaSSH.getStdin());
-        this.errorStream = new BufferedReader(new InputStreamReader(this.javaSSH.getSterr()));
+        InputStream err = this.javaSSH.getSterr();
+        if (err != null) {
+          this.errorStream = new BufferedReader(new InputStreamReader(err));
+        } else {
+          this.errorStream = null;
+        }
       } else {
         isDownWithError = true;
         return;
@@ -493,6 +499,7 @@ public class Leelaz {
 
   public void normalQuit() {
     isNormalEnd = true;
+    canCheckAlive = false; // 新增：主动关闭时，关闭健康检查
     leela0110StopPonder();
     if (Lizzie.leelaz2 != null && this == Lizzie.leelaz2) {
       if (currentEngineN > 20) LizzieFrame.menu.changeEngineIcon2(20, 0);
@@ -529,6 +536,7 @@ public class Leelaz {
     isNormalEnd = true;
     started = false;
     isLoaded = false;
+    canCheckAlive = false; // 新增：主动关闭时，关闭健康检查
     try {
       leela0110StopPonder();
       sendCommand("quit");
@@ -3755,7 +3763,11 @@ public class Leelaz {
   }
 
   public boolean isProcessDead() {
-    return Lizzie.leelaz.process != null && !Lizzie.leelaz.process.isAlive();
+    if (this.useJavaSSH) {
+      // SSH 模式下，通过 SSHController 判断连接是否断开
+      return javaSSH == null || !javaSSH.isConnected();
+    }
+    return process != null && !process.isAlive();
   }
 
   public void maybeAjustPDA(BoardHistoryNode node) {
