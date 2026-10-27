@@ -2,6 +2,7 @@ package featurecat.lizzie.analysis.fox;
 
 import featurecat.lizzie.Lizzie;
 import featurecat.lizzie.rules.Board;
+import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Stone;
 import java.util.Collections;
 import java.util.List;
@@ -91,24 +92,47 @@ public class LizzieFoxHost implements FoxBridge.LizzieHost {
       String[] mv = foxMoves.get(n);
       int[] xy = bridge.gtpToXy(mv[1]);
       if (xy != null) {
-        placeWithoutPonder(xy[0], xy[1], "B".equals(mv[0]) ? Stone.BLACK : Stone.WHITE);
+        placeAtMainEndKeepView(xy[0], xy[1], "B".equals(mv[0]) ? Stone.BLACK : Stone.WHITE);
       }
     }
   }
 
   @Override
   public void onFoxMove(int x, int y, String color) {
-    // 对手手必须 place 到棋盘，Leelaz.playMove 会把 "play X YYY" 同步给引擎。
-    // 抑制 ponder，避免在 genmove 前发多余的 kata-analyze。
-    placeWithoutPonder(x, y, "B".equals(color) ? Stone.BLACK : Stone.WHITE);
+    placeAtMainEndKeepView(x, y, "B".equals(color) ? Stone.BLACK : Stone.WHITE);
   }
 
   @Override
   public void onAiMove(int x, int y, String color) {
-    placeWithoutPonder(x, y, "B".equals(color) ? Stone.BLACK : Stone.WHITE);
+    placeAtMainEndKeepView(x, y, "B".equals(color) ? Stone.BLACK : Stone.WHITE);
   }
 
-  /** place 落子到棋盘，但抑制 place 后自动触发的 ponder。 依赖 Leelaz.suppressPonderOnPlay。 */
+  /** 把新落子接到主分支末尾，但不改变用户当前回看位置。 */
+  private void placeAtMainEndKeepView(int x, int y, Stone stone) {
+    if (Lizzie.board == null) return;
+    BoardHistoryNode viewNode = Lizzie.board.getHistory().getCurrentHistoryNode();
+    BoardHistoryNode mainEnd = Lizzie.board.getHistory().getMainEnd();
+    boolean userWasReviewing = (viewNode != mainEnd);
+
+    if (userWasReviewing) {
+      goToNode(mainEnd);
+    }
+
+    placeWithoutPonder(x, y, stone);
+
+    if (userWasReviewing && viewNode != null) {
+      goToNode(viewNode);
+      if (Lizzie.frame != null) Lizzie.frame.refresh();
+    }
+  }
+
+  private void goToNode(BoardHistoryNode target) {
+    if (Lizzie.board == null || target == null) return;
+    if (Lizzie.board.getHistory().getCurrentHistoryNode() == target) return;
+    Lizzie.board.moveToAnyPosition(target);
+    Lizzie.board.clearAfterMove();
+  }
+
   private void placeWithoutPonder(int x, int y, Stone stone) {
     if (Lizzie.board == null) return;
     if (Lizzie.leelaz == null) {
