@@ -6,15 +6,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 野狐命令分发 + GTP 桥接。 与 LizzieYzy 的交互通过 LizzieHost 抽象。
+ * 野狐命令分发 + GTP 桥接。
  *
- * <p>分工： - FoxBridge 负责野狐协议解析、GTP 命令收发、候选点收集、落子决策； - LizzieHost 负责把局面落到 LizzieYzy 的 Board，并触发
- * Leelaz.genmove。
- *
- * <p>落子显示规则（试点 KataGo）： - 对手手（FAMOVE）：FoxBridge 调 host.onFoxMove，由 host place，同步给引擎； - AI 手 genmove
- * 模式：KataGo 真实落子在 "play <vertex>" 行，由 Leelaz.parseLine 的 play 分支 place 到棋盘；
- * FoxBridge.onEngineOutput 从同一行提取 vertex 并发 AFPLAY 给野狐； - AI 手实时胜率模式：FoxBridge 调 host.onAiMove，由
- * host place。
+ * <p>纯 genmove 模式：AI 回合只走 genmove，等 KataGo 输出 "play <vertex>" 落子； 不解析 info
+ * move，不展示候选点，不算吻合度，不写任何分析注释。
  */
 public class FoxBridge {
 
@@ -23,28 +18,25 @@ public class FoxBridge {
     boolean isEngineRunning();
 
     void sendGtp(String command);
-    /** 通知宿主：局面已更新（用于刷新棋盘/胜率） */
+
     void onBoardUpdated();
-    /** 通知宿主：轮到 AI，请触发 genmove 或 analyze */
+
     void onAiTurn(String color);
-    /** 通知宿主：候选点更新 */
+
     void onCandidates(List<Candidate> cands);
-    /** 通知宿主：对局结束 */
+
     void onGameEnd();
 
     void log(String msg);
 
-    /** 野狐对局开始/结束：锁定或解锁棋盘手动落子 */
     void onInputLockChanged(boolean locked);
 
-    // ---- 棋盘同步 ----
-    /** FARULE：棋盘尺寸/贴目/让子变化 */
     void onRuleChanged(int boardSize, double komi, List<String> handicap);
-    /** FASTATUS：重连时批量重放野狐历史落子 */
+
     void onReplayMoves(Map<Integer, String[]> foxMoves);
-    /** FAMOVE：野狐确认的一手（对手手） */
+
     void onFoxMove(int x, int y, String color);
-    /** AI 落子后通知宿主显示（实时胜率模式下使用） */
+
     void onAiMove(int x, int y, String color);
   }
 
@@ -57,12 +49,13 @@ public class FoxBridge {
     public int order;
   }
 
+  /** 兼容旧接口，纯 genmove 模式下永不触发。 */
+  public interface MatchListener {
+    void onOpponentMoveEvaluated(
+        List<Candidate> candidates, String playedVertex, int order, double matchRatio);
+  }
+
   // ---------- 正则常量 ----------
-  private static final Pattern INFO_MOVE = Pattern.compile("info move ([A-Ta-t]\\d+)");
-  private static final Pattern VISITS = Pattern.compile("visits (\\d+)");
-  private static final Pattern WINRATE = Pattern.compile("winrate ([\\d.]+)");
-  private static final Pattern SCORE_LEAD = Pattern.compile("scoreLead (-?[\\d.]+)");
-  private static final Pattern ORDER = Pattern.compile("order (\\d+)");
   private static final Pattern GTP_VERTEX = Pattern.compile("^([A-HJ-T])(\\d{1,2})$");
 
   private LizzieHost host;
@@ -75,26 +68,48 @@ public class FoxBridge {
   public Map<Integer, String[]> foxMoves = new LinkedHashMap<>();
   public int lastMoveNumber = 0;
 
-  public boolean liveWinrate = false;
-  public double maxTime = 5.0;
+  // 纯 genmove 模式，固定 false
+  public final boolean analyzeMode = false;
+
+  // 分析相关参数保留字段但不再使用
+  public double maxTime = -1;
   public int maxVisits = 0;
   public int maxPlayouts = 0;
 
   private boolean analyzing = false;
   private long analyzeStart = 0;
   private String analyzeColor = "B";
+
+  // 候选点缓存（纯 genmove 模式下始终为空）
   private final Map<String, Candidate> candidates = new LinkedHashMap<>();
+  private final Map<String, Candidate> currentCandidates = new LinkedHashMap<>();
   private volatile boolean candidatesDirty = false;
 
-  // 等待 genmove 落子（KataGo 在 "play <vertex>" 行给出）。
-  // 由 startThinking() 置 true；onEngineOutput 抓到 play 行后置 false。
+  private volatile boolean commitPending = false;
+
+  // 是否在等 genmove 的 "play <vertex>" 应答
   private volatile boolean waitingGenmoveResult = false;
 
   private volatile boolean flushStarted = false;
   private volatile boolean timerStarted = false;
 
-  // final_score 相关
   private String pendingScoreOpponent = "0";
+
+  private volatile double lastOpponentMatch = -1;
+  private volatile int lastOpponentOrder = -1;
+  private volatile String lastOpponentVertex = null;
+  private volatile String lastAiVertex = null;
+
+  private volatile Runnable onCandidatesChanged;
+  private volatile MatchListener matchListener;
+
+  public void setOnCandidatesChanged(Runnable r) {
+    this.onCandidatesChanged = r;
+  }
+
+  public void setMatchListener(MatchListener l) {
+    this.matchListener = l;
+  }
 
   public FoxBridge(LizzieHost host, FoxClientServer fox) {
     this.host = host;
@@ -113,25 +128,28 @@ public class FoxBridge {
     }
   }
 
-  // ---------- 配置 ----------
-  public void setLiveWinrate(boolean enabled) {
-    this.liveWinrate = enabled;
-    if (host != null) host.log("实时胜率模式: " + (enabled ? "开" : "关"));
+  // ---------- 配置（兼容接口，纯 genmove 下无实际作用） ----------
+  public void setAnalyzeMode(boolean enabled) {
+    if (host != null) host.log("对弈模式: genmove 模式（分析模式已禁用）");
+  }
+
+  public boolean isAnalyzeMode() {
+    return false;
   }
 
   public void setMaxTime(double t) {
     this.maxTime = t;
-    if (host != null) host.log("maxTime = " + t);
+    if (host != null) host.log("maxTime = " + t + "（纯 genmove 模式，按 gtp.cfg）");
   }
 
   public void setMaxVisits(int v) {
     this.maxVisits = v;
-    if (host != null) host.log("maxVisits = " + v);
+    if (host != null) host.log("maxVisits = " + v + "（纯 genmove 模式，忽略）");
   }
 
   public void setMaxPlayouts(int p) {
     this.maxPlayouts = p;
-    if (host != null) host.log("maxPlayouts = " + p);
+    if (host != null) host.log("maxPlayouts = " + p + "（纯 genmove 模式，忽略）");
   }
 
   public void setRules(String rule) {
@@ -200,8 +218,15 @@ public class FoxBridge {
     foxMoves.clear();
     lastMoveNumber = 0;
     candidates.clear();
+    currentCandidates.clear();
     candidatesDirty = false;
+    commitPending = false;
     waitingGenmoveResult = false;
+    analyzing = false;
+    lastOpponentMatch = -1;
+    lastOpponentOrder = -1;
+    lastOpponentVertex = null;
+    lastAiVertex = null;
     host.onCandidates(Collections.emptyList());
     host.onInputLockChanged(true);
     host.log("规则: 棋盘" + boardSize + ", 贴目" + komi + ", 让子" + handicap);
@@ -252,8 +277,6 @@ public class FoxBridge {
     }
 
     if (parsedN > 0 && parsedVertex != null && parsedColor != null) {
-      // 去重：野狐重连时 FASTATUS 已重放历史手，
-      // FAMOVE 可能再次送同一手，已存在则只更新 lastMoveNumber，不重复 place。
       String[] existed = foxMoves.get(parsedN);
       boolean alreadyPlaced =
           existed != null && existed[0].equals(parsedColor) && existed[1].equals(parsedVertex);
@@ -272,7 +295,6 @@ public class FoxBridge {
                 + " 手） isAiTurn="
                 + isAiTurn);
       } else {
-        // 无论 isAiTurn 与否，这一手都必须先 place 到棋盘，让 Leelaz 把 play 同步给引擎。
         int[] xy = gtpToXy(parsedVertex);
         if (xy != null) {
           host.onFoxMove(xy[0], xy[1], parsedColor);
@@ -287,9 +309,12 @@ public class FoxBridge {
                 + " 手） isAiTurn="
                 + isAiTurn);
       }
+
+      commitPending = false;
     }
 
     host.onBoardUpdated();
+
     if (isAiTurn) {
       host.onInputLockChanged(true);
       try {
@@ -298,6 +323,7 @@ public class FoxBridge {
       }
       startThinking();
     }
+    // 对手回合：纯 genmove 模式，不做任何分析，只等野狐下一手
   }
 
   private void handleFaskip(String[] items) {
@@ -313,12 +339,17 @@ public class FoxBridge {
 
   private void handleFaresult(String[] items) {
     host.log("对局结果: " + Arrays.toString(items));
-    stopAnalyze();
     waitingGenmoveResult = false;
+    commitPending = false;
     foxMoves.clear();
     lastMoveNumber = 0;
     candidates.clear();
+    currentCandidates.clear();
     candidatesDirty = false;
+    lastOpponentMatch = -1;
+    lastOpponentOrder = -1;
+    lastOpponentVertex = null;
+    lastAiVertex = null;
     host.onCandidates(Collections.emptyList());
     host.onInputLockChanged(false);
     host.onGameEnd();
@@ -329,48 +360,29 @@ public class FoxBridge {
     sendGtp("final_score");
   }
 
+  /** AI 回合：只走 genmove，等 "play <vertex>" 决定落子。 */
   private void startThinking() {
     candidates.clear();
     candidatesDirty = false;
+    commitPending = false;
     analyzeColor = aiColor;
-    if (liveWinrate) {
-      analyzing = true;
-      analyzeStart = System.currentTimeMillis();
-      if (maxTime > 0) sendGtp("kata-set-param maxTime " + maxTime);
-      sendGtp("kata-analyze " + aiColor + " interval 50 maxmoves 10");
-      host.log("开始实时分析 " + aiColor);
-    } else {
-      // 交给 Leelaz.genmove，让 isThinking 和 waitingGenmoveResponse 置位。
-      // KataGo 会在后续 "play <vertex>" 行给出真实落子。
-      waitingGenmoveResult = true;
-      host.log("请求 genmove " + aiColor);
-    }
+    waitingGenmoveResult = true;
+    analyzing = false;
+    host.log("请求 genmove " + aiColor);
     host.onAiTurn(aiColor);
   }
 
-  private void stopAnalyze() {
-    if (!analyzing) return;
-    analyzing = false;
-    candidatesDirty = false;
-    sendGtp("stop");
-    candidates.clear();
-    host.onCandidates(Collections.emptyList());
-  }
-
-  // ---------- 定时器 ----------
+  // ---------- 定时器（纯 genmove 下不参与落子决策） ----------
   private void startTimerThread() {
     Thread t =
         new Thread(
             () -> {
               while (true) {
                 try {
-                  Thread.sleep(100);
+                  Thread.sleep(200);
                 } catch (InterruptedException ignored) {
                 }
-                if (!analyzing) continue;
-                if (host == null) continue;
-                double elapsed = (System.currentTimeMillis() - analyzeStart) / 1000.0;
-                if (elapsed >= maxTime) commitLiveMove();
+                // 纯 genmove 模式：不做分析计时，不自动落子
               }
             },
             "FoxTimer");
@@ -384,45 +396,15 @@ public class FoxBridge {
             () -> {
               while (true) {
                 try {
-                  Thread.sleep(30);
+                  Thread.sleep(100);
                 } catch (InterruptedException ignored) {
                 }
-                if (candidatesDirty && analyzing) {
-                  candidatesDirty = false;
-                  if (host == null) continue;
-                  List<Candidate> list = new ArrayList<>(candidates.values());
-                  list.sort(Comparator.comparingInt(c -> c.order));
-                  host.onCandidates(list.subList(0, Math.min(20, list.size())));
-                }
+                // 纯 genmove 模式：不推送候选点
               }
             },
             "FoxFlush");
     t.setDaemon(true);
     t.start();
-  }
-
-  private void commitLiveMove() {
-    if (host == null) return;
-    if (candidates.isEmpty()) {
-      host.log("无候选，无法落子");
-      return;
-    }
-    Candidate best =
-        candidates.values().stream().min(Comparator.comparingInt(c -> c.order)).orElse(null);
-    if (best == null) return;
-    analyzing = false;
-    candidatesDirty = false;
-    sendGtp("stop");
-    candidates.clear();
-    host.onCandidates(Collections.emptyList());
-
-    host.onAiMove(best.x, best.y, analyzeColor);
-
-    lastMoveNumber++;
-    String moveStr = lastMoveNumber + "^" + best.x + "^" + best.y + "^" + analyzeColor;
-    fox.send("AFPLAY", analyzeColor, moveStr);
-    host.log("发送落子: " + best.vertex + " -> AFPLAY " + analyzeColor + " " + moveStr);
-    foxMoves.put(lastMoveNumber, new String[] {analyzeColor, best.vertex});
   }
 
   // ---------- GTP 输出处理 ----------
@@ -436,12 +418,7 @@ public class FoxBridge {
       return;
     }
 
-    // ---- genmove 落子在 "play <vertex>" 行 ----
-    // KataGo 的 kata-genmove_analyze 输出顺序：
-    //   =
-    //   play Q16
-    //   MALKOVICH:...
-    // "=" 只是同步应答，body 为空；真实落子在 "play Q16"。
+    // genmove 落子在 "play <vertex>" 行
     if (waitingGenmoveResult && stripped.startsWith("play")) {
       String[] params = stripped.split("\\s+");
       if (params.length >= 2) {
@@ -452,7 +429,6 @@ public class FoxBridge {
       }
     }
 
-    // final_score 的应答是普通 "= B+3.5"，走这里
     if (stripped.startsWith("=")) {
       String body = stripped.substring(1).trim();
       int sp = body.indexOf(' ');
@@ -465,8 +441,9 @@ public class FoxBridge {
       }
     }
 
-    if (stripped.startsWith("info move")) {
-      parseInfoMove(stripped);
+    // genmove 期间的 info 行：保留给 Leelaz 自己解析（胜率曲线依赖它），
+    // 但 FoxBridge 不再把它当候选点推给 UI。
+    if (stripped.startsWith("info")) {
       return;
     }
   }
@@ -475,36 +452,6 @@ public class FoxBridge {
     if (body.isEmpty()) return false;
     if (body.equals("0") || body.equalsIgnoreCase("draw")) return true;
     return body.length() >= 3 && "WBwb".indexOf(body.charAt(0)) >= 0 && body.charAt(1) == '+';
-  }
-
-  private void parseInfoMove(String line) {
-    try {
-      Matcher mm = INFO_MOVE.matcher(line);
-      if (!mm.find()) return;
-      String move = mm.group(1);
-      Candidate c = new Candidate();
-      c.vertex = move;
-      Matcher mv = VISITS.matcher(line);
-      if (mv.find()) c.visits = Long.parseLong(mv.group(1));
-      Matcher mw = WINRATE.matcher(line);
-      if (mw.find()) c.winrate = Double.parseDouble(mw.group(1));
-      Matcher ms = SCORE_LEAD.matcher(line);
-      if (ms.find()) c.score = Double.parseDouble(ms.group(1));
-      Matcher mo = ORDER.matcher(line);
-      c.order = mo.find() ? Integer.parseInt(mo.group(1)) : 999;
-      int[] xy = gtpToXy(move);
-      if (xy == null) return;
-      c.x = xy[0];
-      c.y = xy[1];
-      candidates.put(move, c);
-      candidatesDirty = true;
-      if (c.order == 0) {
-        if (maxVisits > 0 && c.visits >= maxVisits) commitLiveMove();
-        else if (maxPlayouts > 0 && c.visits >= maxPlayouts) commitLiveMove();
-      }
-    } catch (Exception e) {
-      if (host != null) host.log("info move 解析失败: " + e.getMessage());
-    }
   }
 
   private void sendMoveToFox(String move) {
@@ -517,6 +464,9 @@ public class FoxBridge {
     if ("resign".equalsIgnoreCase(move)) {
       fox.send("AFGIVEUP", aiColor);
       host.log("发送认输: AFGIVEUP " + aiColor);
+      lastAiVertex = "resign";
+      commitPending = false;
+      analyzing = false;
       return;
     }
     if ("pass".equalsIgnoreCase(move)) {
@@ -524,8 +474,11 @@ public class FoxBridge {
       host.log("发送停一手: AFSKIP " + aiColor);
       lastMoveNumber++;
       foxMoves.put(lastMoveNumber, new String[] {aiColor, "pass"});
+      lastAiVertex = "pass";
       candidates.clear();
       candidatesDirty = false;
+      commitPending = false;
+      analyzing = false;
       host.onCandidates(Collections.emptyList());
       return;
     }
@@ -539,10 +492,13 @@ public class FoxBridge {
     fox.send("AFPLAY", aiColor, moveStr);
     host.log("发送落子: " + move + " -> AFPLAY " + aiColor + " " + moveStr);
     foxMoves.put(lastMoveNumber, new String[] {aiColor, xyToGtp(xy[0], xy[1])});
+    lastAiVertex = move;
     candidates.clear();
     candidatesDirty = false;
+    waitingGenmoveResult = false;
+    commitPending = false;
+    analyzing = false;
     host.onCandidates(Collections.emptyList());
-    // 棋盘已由 Leelaz.parseLine 的 play 分支 place，不重复落子
   }
 
   private void sendScoreToFox(String score) {
@@ -593,10 +549,6 @@ public class FoxBridge {
     return new int[] {x, y};
   }
 
-  /**
-   * 发送 GTP 命令。 注意：不要给命令加 id 前缀。 Leelaz 内部用 cmdNumber 计数并自行拼接 id，外部再塞 id 会让 KataGo 收到 "123 genmove
-   * W" 这种非法命令。
-   */
   private void sendGtp(String cmd) {
     if (host == null) return;
     if (!host.isEngineRunning()) {
@@ -605,5 +557,26 @@ public class FoxBridge {
     }
     host.sendGtp(cmd);
     host.log("GTP发送: " + cmd);
+  }
+
+  // ---------- UI 读取用（纯 genmove 下无意义，保留兼容） ----------
+  public double getLastOpponentMatch() {
+    return lastOpponentMatch;
+  }
+
+  public int getLastOpponentOrder() {
+    return lastOpponentOrder;
+  }
+
+  public String getLastOpponentVertex() {
+    return lastOpponentVertex;
+  }
+
+  public String getLastAiVertex() {
+    return lastAiVertex;
+  }
+
+  public void setLastAiVertex(String v) {
+    this.lastAiVertex = v;
   }
 }

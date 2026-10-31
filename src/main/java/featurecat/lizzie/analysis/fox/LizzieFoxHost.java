@@ -1,6 +1,7 @@
 package featurecat.lizzie.analysis.fox;
 
 import featurecat.lizzie.Lizzie;
+import featurecat.lizzie.analysis.Leelaz;
 import featurecat.lizzie.rules.Board;
 import featurecat.lizzie.rules.BoardHistoryNode;
 import featurecat.lizzie.rules.Stone;
@@ -16,15 +17,21 @@ public class LizzieFoxHost implements FoxBridge.LizzieHost {
     this.bridge = bridge;
   }
 
+  private Leelaz engine() {
+    return Lizzie.foxEngine != null ? Lizzie.foxEngine : Lizzie.leelaz;
+  }
+
   @Override
   public boolean isEngineRunning() {
-    return Lizzie.leelaz != null && Lizzie.leelaz.isLoaded() && Lizzie.leelaz.isStarted();
+    Leelaz e = engine();
+    return e != null && e.isLoaded() && e.isStarted();
   }
 
   @Override
   public void sendGtp(String command) {
-    if (Lizzie.leelaz == null) return;
-    Lizzie.leelaz.sendCommandNoLeelaz2(command);
+    Leelaz e = engine();
+    if (e == null) return;
+    e.sendCommandNoLeelaz2(command);
   }
 
   @Override
@@ -34,17 +41,16 @@ public class LizzieFoxHost implements FoxBridge.LizzieHost {
 
   @Override
   public void onAiTurn(String color) {
-    if (Lizzie.leelaz == null) return;
-    // 触发 Leelaz.genmove：isThinking=true, waitingGenmoveResponse=true。
-    // KataGo 返回 "play <vertex>" 时：
-    //   Leelaz.parseLine 的 play 分支 place 到棋盘；
-    //   FoxBridge.onEngineOutput 抓同一行发 AFPLAY。
-    Lizzie.leelaz.genmove(color);
+    Leelaz e = engine();
+    if (e == null) return;
+    // 纯 genmove：只发 genmove，等 "play <vertex>" 落子
+    e.genmove(color);
   }
 
   @Override
   public void onCandidates(List<FoxBridge.Candidate> cands) {
-    // 候选点由 Leelaz.parseInfoKatago 自己处理
+    // 纯 genmove 模式：FoxBridge 不提供候选点，这里什么都不做。
+    // 实时胜率/候选由 Leelaz.parseInfoKatago 正常写入，胜率曲线依赖它。
   }
 
   @Override
@@ -104,6 +110,10 @@ public class LizzieFoxHost implements FoxBridge.LizzieHost {
 
   @Override
   public void onAiMove(int x, int y, String color) {
+    try {
+      bridge.setLastAiVertex(bridge.xyToGtp(x, y));
+    } catch (Throwable ignored) {
+    }
     placeAtMainEndKeepView(x, y, "B".equals(color) ? Stone.BLACK : Stone.WHITE);
   }
 
@@ -135,16 +145,17 @@ public class LizzieFoxHost implements FoxBridge.LizzieHost {
 
   private void placeWithoutPonder(int x, int y, Stone stone) {
     if (Lizzie.board == null) return;
-    if (Lizzie.leelaz == null) {
+    Leelaz e = engine();
+    if (e == null) {
       Lizzie.board.place(x, y, stone, false);
       return;
     }
-    boolean old = Lizzie.leelaz.suppressPonderOnPlay;
-    Lizzie.leelaz.suppressPonderOnPlay = true;
+    boolean old = e.suppressPonderOnPlay;
+    e.suppressPonderOnPlay = true;
     try {
       Lizzie.board.place(x, y, stone, false);
     } finally {
-      Lizzie.leelaz.suppressPonderOnPlay = old;
+      e.suppressPonderOnPlay = old;
     }
   }
 }
