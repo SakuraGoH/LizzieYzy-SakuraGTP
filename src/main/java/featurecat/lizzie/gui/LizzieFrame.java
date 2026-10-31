@@ -1486,9 +1486,25 @@ public class LizzieFrame extends JFrame {
     }
 
     autoIntervalCom = Lizzie.config.analyzeUpdateIntervalCentisec * 5;
+    // 改进4：手动处理窗口关闭，避免点“否”后窗口仍被关闭
+    this.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
     this.addWindowListener(
         new WindowAdapter() {
           public void windowClosing(WindowEvent e) {
+            // 野狐对局进行中关闭时弹出确认提示
+            if (Lizzie.foxBridge != null && foxGameInputLocked) {
+              int ret =
+                  JOptionPane.showConfirmDialog(
+                      Lizzie.frame,
+                      "当前有野狐对局正在进行，确定要关闭 LizzieYzy 吗？",
+                      "确认关闭",
+                      JOptionPane.YES_NO_OPTION,
+                      JOptionPane.WARNING_MESSAGE);
+              if (ret != JOptionPane.YES_OPTION) {
+                return; // 用户取消，窗口保持打开
+              }
+            }
+            // 用户确认（或没有对局），执行关闭
             Lizzie.shutdown();
           }
         });
@@ -2366,6 +2382,7 @@ public class LizzieFrame extends JFrame {
       foxServer = null;
     }
     Lizzie.foxBridge = null;
+    Lizzie.foxEngine = null; // 改进3：清理对弈引擎引用
     syncBoard = false;
     bothSync = false;
     foxGameInputLocked = false;
@@ -2388,10 +2405,47 @@ public class LizzieFrame extends JFrame {
       Utils.showMsg("请先停止截图同步");
       return;
     }
-    if (Lizzie.leelaz == null || !Lizzie.leelaz.isLoaded()) {
-      Utils.showMsg("请先启动 KataGo 引擎");
+
+    // 改进3：双引擎模式下必须指定一个引擎作为对弈引擎
+    Leelaz selectedEngine = null;
+    if (Lizzie.config.isDoubleEngineMode()
+        && Lizzie.leelaz2 != null
+        && Lizzie.leelaz != null
+        && Lizzie.leelaz.isLoaded()
+        && Lizzie.leelaz2.isLoaded()) {
+      Object[] options = {
+        "引擎1: " + Lizzie.leelaz.oriEnginename, "引擎2: " + Lizzie.leelaz2.oriEnginename
+      };
+      int choice =
+          JOptionPane.showOptionDialog(
+              this,
+              "双引擎模式下，请选择用于野狐对弈的引擎：",
+              "选择对弈引擎",
+              JOptionPane.DEFAULT_OPTION,
+              JOptionPane.QUESTION_MESSAGE,
+              null,
+              options,
+              options[0]);
+      if (choice == -1) {
+        return; // 用户取消
+      }
+      selectedEngine = (choice == 0) ? Lizzie.leelaz : Lizzie.leelaz2;
+    } else {
+      // 非双引擎模式，使用主引擎
+      if (Lizzie.leelaz == null || !Lizzie.leelaz.isLoaded()) {
+        Utils.showMsg("请先启动 KataGo 引擎");
+        return;
+      }
+      selectedEngine = Lizzie.leelaz;
+    }
+
+    // 检查是否有另一个引擎已经在野狐对弈中（防止双引擎同时接入）
+    if (Lizzie.foxEngine != null && Lizzie.foxEngine != selectedEngine) {
+      Utils.showMsg("另一个引擎正在野狐对弈中，请先停止当前对局");
       return;
     }
+
+    Lizzie.foxEngine = selectedEngine;
 
     // 避免 place(...) 走进截图同步分支
     syncBoard = false;
@@ -2433,7 +2487,13 @@ public class LizzieFrame extends JFrame {
     }
     if (Lizzie.gtpConsole != null)
       Lizzie.gtpConsole.addLine(
-          "[Fox] 协议直连已启动，端口 " + port + "，请在野狐 AI 设置中填 127.0.0.1:" + port + "\n");
+          "[Fox] 协议直连已启动，端口 "
+              + port
+              + "，对弈引擎: "
+              + selectedEngine.oriEnginename
+              + "，请在野狐 AI 设置中填 127.0.0.1:"
+              + port
+              + "\n");
     Menu.refreshFoxDirectItemState();
   }
 
