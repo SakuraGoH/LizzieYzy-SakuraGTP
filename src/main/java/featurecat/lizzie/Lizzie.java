@@ -11,6 +11,7 @@ import featurecat.lizzie.gui.LizzieFrame;
 import featurecat.lizzie.gui.LoadEngine;
 import featurecat.lizzie.gui.Message;
 import featurecat.lizzie.rules.Board;
+import featurecat.lizzie.rules.SGFParser;
 import featurecat.lizzie.util.MultiOutputStream;
 import featurecat.lizzie.util.Utils;
 import java.awt.Font;
@@ -42,6 +43,8 @@ public class Lizzie {
   public static Leelaz leelaz;
   public static Leelaz leelaz2;
   public static featurecat.lizzie.analysis.fox.FoxBridge foxBridge;
+  // 改进3：野狐对弈专用引擎，双引擎模式下必须指定一个
+  public static Leelaz foxEngine = null;
   public static String lizzieVersion = "2.5.3";
   public static String checkVersion = "230614";
   public static boolean readMode = false;
@@ -201,6 +204,16 @@ public class Lizzie {
               }
             } else if (config.autoResume) {
               frame.resumeFile();
+            } else {
+              // 改进5：尝试恢复上次关闭时的盘面状态
+              File lastState = new File("save" + File.separator + "last_state.sgf");
+              if (lastState.exists() && lastState.isFile()) {
+                try {
+                  frame.loadFile(lastState, true, false);
+                } catch (Exception ex) {
+                  ex.printStackTrace();
+                }
+              }
             }
             Lizzie.frame.setMainPanelFocus();
           }
@@ -419,6 +432,13 @@ public class Lizzie {
     //        frame.saveFile(false);
     //      }
     //    }
+    // 改进5：关闭时保存当前盘面和落子树（SGF格式），用于下次启动恢复
+    try {
+      String stateFile = "save" + File.separator + "last_state.sgf";
+      SGFParser.save(Lizzie.board, stateFile, true);
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
     if (config.autoSaveOnExit) frame.saveAutoGame(1);
     if (Lizzie.config.uiConfig.optBoolean("autoload-last", false)) {
       Lizzie.config.uiConfig.put("last-engine", EngineManager.currentEngineNo);
