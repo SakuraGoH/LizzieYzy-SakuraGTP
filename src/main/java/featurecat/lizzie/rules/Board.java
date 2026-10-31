@@ -2924,43 +2924,39 @@ public class Board {
   //	    initializeForPk();
   //	  }
   public void clear(boolean isEngineGame) {
-    // 野狐对局中禁止清空棋盘，避免丢失对局数据
-    if (Lizzie.foxBridge != null && Lizzie.frame != null && Lizzie.frame.foxGameInputLocked) {
-      return;
-    }
     LizzieFrame.winrateGraph.resetMaxScoreLead();
     if (Lizzie.frame.readBoard != null) {
       Lizzie.frame.readBoard.firstSync = true;
     }
-    double komi = history.getGameInfo().getKomi();
+    // 先保存当前贴目（在 initialize 替换 history 之前）
+    double currentKomi = history.getGameInfo().getKomi();
     isPkBoardKataB = false;
     isPkBoardKataW = false;
     Lizzie.frame.resetTitle();
     hasStartStone = false;
     startStonelist = new ArrayList<Movelist>();
     movelistwr.clear();
-    initialize(isEngineGame);
+
+    initialize(isEngineGame); // 这里会新建 history，贴目回到默认值
+
     isKataBoard = false;
     if (!isEngineGame) {
       cleanedittemp();
       isPkBoard = false;
-      Lizzie.leelaz.clear();
-      if (Lizzie.frame.readBoard != null
-          && Lizzie.frame.readBoard.process != null
-          && Lizzie.frame.readBoard.process.isAlive()) {
-        Lizzie.board.getHistory().getGameInfo().resetAllNoKomi();
-        Lizzie.leelaz.komi(komi);
-      } else {
-        komi = Lizzie.leelaz.orikomi;
-        Lizzie.board.getHistory().getGameInfo().resetAllNoKomi();
-        Lizzie.leelaz.komi(komi);
-      }
+      Lizzie.leelaz.clear(); // 引擎 clear_board，贴目回到 gtp.cfg 默认值
+
+      // 关键：在引擎 clear 之后，把贴目写回 GameInfo，并同步给引擎
+      Lizzie.board.getHistory().getGameInfo().setKomi(currentKomi);
+      Lizzie.leelaz.komi(currentKomi);
+
       if (LizzieFrame.urlSgf) {
         if (LizzieFrame.onlineDialog != null) {
           LizzieFrame.onlineDialog.stopSync();
         }
       }
-    } else Lizzie.board.getHistory().getGameInfo().setKomi(komi);
+    } else {
+      Lizzie.board.getHistory().getGameInfo().setKomi(currentKomi);
+    }
     Lizzie.frame.clearKataEstimate();
   }
 
